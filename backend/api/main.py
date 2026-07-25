@@ -1,0 +1,87 @@
+import json
+import os
+from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocketDisconnect
+
+load_dotenv()
+
+from .routers import device_router, agent_router, kb_router
+from .ws.manager import ws_manager
+from ..device.controller import DeviceController, ADBError
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    ctrl = DeviceController(serial=os.getenv("ANDROID_SERIAL"))
+    try:
+        ctrl.connect()
+        print(f"[startup] Connected to device: {ctrl.serial} {ctrl.resolution}")
+    except ADBError as e:
+        print(f"[startup] WARNING: {e} — continue without device")
+    app.state.device = ctrl
+
+    yield
+
+    # shutdown
+    print("[shutdown] Mobile Agent API stopping")
+
+
+app = FastAPI(
+    title="Mobile Agent API",
+    version="1.0.0",
+    description="Autonomous Android agent — REST + WebSocket",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",   # Vite dev server
+        "http://localhost:80",
+        "http://localhost",
+        "*",                       # allow all in dev; restrict in prod
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(device_router, prefix="/api/v1")
+app.include_router(agent_router,  prefix="/api/v1")
+app.include_router(kb_router,     prefix="/api/v1")
+
+
+@app.get("/api/v1/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await ws_manager.connect(session_id, websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            msg_type = msg.get("type")
+
+            # find session and apply control message
+            from .routers.agent import _sessions
+            state = _sessions.get(session_id)
+            if state:
+                if msg_type == "stop":
+                    state.status = "done"
+                elif msg_type == "pause":
+                    state.status = "paused"
+                elif msg_type == "resume":
+                    state.status = "running"
+
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(session_id, websocket)
+    except Exception:
+        await ws_manager.disconnect(session_id, websocket)

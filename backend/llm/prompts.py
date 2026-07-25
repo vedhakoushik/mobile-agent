@@ -1,0 +1,190 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..agent.state import AgentState
+    from ..perception.xml_parser import InteractiveElement
+
+
+# ── Schema descriptions ────────────────────────────────────────────────────────
+
+_EXPLORE_SCHEMA = """{
+  "thought":        "Your reasoning about what to explore next",
+  "observation":    "What you see on screen right now",
+  "action":         "tap | text | swipe | long_press | grid | finish",
+  "element_id":     <integer ID or null>,
+  "text_input":     "<string to type or null>",
+  "direction":      "up | down | left | right | null",
+  "grid_cell":      "<cell label e.g. E5 or null>",
+  "is_novel_element": <true if this element has not been explored before, false otherwise>
+}"""
+
+_DEPLOY_SCHEMA = """{
+  "thought":     "Your reasoning about advancing the task",
+  "observation": "Current screen state relevant to the task",
+  "action":      "tap | text | swipe | long_press | grid | finish",
+  "element_id":  <integer ID or null>,
+  "text_input":  "<string to type or null>",
+  "direction":   "up | down | left | right | null",
+  "grid_cell":   "<cell label e.g. E5 or null>"
+}"""
+
+
+def _elements_txt(elements: list) -> str:
+    return "\n".join(
+        f"[{e['id']}] {e['class_name']} | text='{e['text']}' "
+        f"| desc='{e['content_desc']}' | res='{e['resource_id']}'"
+        for e in elements
+    ) or "(no interactive elements detected)"
+
+
+def _history_txt(history: list, max_entries: int = 5) -> str:
+    if not history:
+        return "(first round)"
+    shown = history[-max_entries:]
+    return "\n".join(
+        f"Round {h['round']}: {h['action']['action'].upper()} "
+        f"element {h['action'].get('element_id', '–')} "
+        f"— {h['action'].get('thought', '')[:80]}"
+        for h in shown
+    )
+
+
+# ── Explore prompt ─────────────────────────────────────────────────────────────
+
+EXPLORE_SYSTEM = """You are an Android UI exploration agent. Your goal is to systematically \
+interact with every reachable UI element in the app and build a knowledge base of their behaviors.
+
+Rules:
+- Prefer elements you have NOT explored yet (set is_novel_element: true for those)
+- When you tap something and a new sub-screen opens, explore THAT screen before going back
+- Swipe to reveal hidden content when all visible elements have been explored
+- Set is_novel_element: false for elements you have already reflected on
+- Use action "finish" ONLY when you believe all reachable screens and elements are documented
+- Respond ONLY with valid JSON — no prose, no explanation outside the JSON"""
+
+
+def build_explore_prompt(state: "AgentState", elements: list, docs_context: str) -> str:
+    return (
+        f"{EXPLORE_SYSTEM}\n\n"
+        f"App: {state.app_name} | Round: {state.round_num} / {state.max_rounds}\n\n"
+        f"INTERACTIVE ELEMENTS (numbered orange boxes on screenshot):\n"
+        f"{_elements_txt(elements)}\n\n"
+        f"EXISTING KB DOCS FOR VISIBLE ELEMENTS:\n"
+        f"{docs_context or '(none yet)'}\n\n"
+        f"LAST 5 ACTIONS:\n"
+        f"{_history_txt(state.action_history)}\n\n"
+        f"Respond ONLY with valid JSON matching this schema:\n{_EXPLORE_SCHEMA}"
+    )
+
+
+# ── Reflect prompt ─────────────────────────────────────────────────────────────
+
+def build_reflect_prompt(app_name: str, elem: dict, action_type: str) -> str:
+    return (
+        f"App: {app_name}\n"
+        f"Element: [{elem['id']}] {elem['class_name']} "
+        f"| text='{elem['text']}' | desc='{elem['content_desc']}' | res='{elem['resource_id']}'\n"
+        f"Action taken: {action_type}\n\n"
+        f"The BEFORE screenshot (first image) and AFTER screenshot (second image) are attached.\n"
+        f"Describe what CHANGED between them to generate accurate, factual documentation.\n\n"
+        f"Respond ONLY with valid JSON:\n"
+        f'{{"documentation": "one or two sentences on what this element does and when to use it", '
+        f'"observed_result": "what visibly changed on screen, or \\"no visible change\\""}}'
+    )
+
+
+# ── Planner prompt ─────────────────────────────────────────────────────────────
+
+def build_planner_prompt(task: str, app_name: str) -> str:
+    return (
+        f"You are a mobile task planner. Break down this task into 3–8 ordered sub-steps.\n\n"
+        f"App: {app_name}\n"
+        f"Task: {task}\n\n"
+        f"Each sub-step should be a single, concrete UI interaction goal.\n"
+        f"Examples: 'Tap the search button', 'Type \"SDE Bangalore\" in the search field', "
+        f"'Tap the Search/Submit button'\n\n"
+        f'Respond ONLY with valid JSON: {{"steps": ["step 1", "step 2", ...]}}'
+    )
+
+
+# ── Deploy prompt ─────────────────────────────────────────────────────────────
+
+DEPLOY_SYSTEM = """You are an Android task automation agent. Complete the given task \
+by interacting with the app's UI. Be efficient — complete the task in as few steps as possible.
+
+Rules:
+- Follow the plan's current sub-step
+- Use knowledge base docs to understand element behaviors
+- Use action "finish" when the FULL task is visibly complete (result shown on screen)
+- If a required UI element is not visible, swipe to find it
+- NEVER tap the same element twice in a row unless the screen changed
+- Respond ONLY with valid JSON — no prose outside the JSON"""
+
+
+def build_deploy_prompt(state: "AgentState", elements: list, docs_context: str) -> str:
+    # compress history: first entry + last 5
+    history = state.action_history
+    if len(history) > 6:
+        shown = [history[0]] + history[-5:]
+        hist_note = f"(showing first + last 5 of {len(history)} total)"
+    else:
+        shown = history
+        hist_note = ""
+
+    # plan with current step indicator
+    if state.sub_steps:
+        steps_lines = []
+        for i, step in enumerate(state.sub_steps):
+            if i < state.current_step_idx:
+                icon = "✓"
+            elif i == state.current_step_idx:
+                icon = "→"
+            else:
+                icon = "○"
+            steps_lines.append(f"  {icon} {i+1}. {step}")
+        plan_txt = "\n".join(steps_lines)
+        current_step = state.sub_steps[min(state.current_step_idx, len(state.sub_steps)-1)]
+    else:
+        plan_txt = f"  → {state.task}"
+        current_step = state.task
+
+    history_lines = "\n".join(
+        f"Round {h['round']}: {h['action']['action'].upper()} "
+        f"element {h['action'].get('element_id', '–')} "
+        f"— {h['action'].get('thought', '')[:80]}"
+        for h in shown
+    ) or "(first round)"
+
+    return (
+        f"{DEPLOY_SYSTEM}\n\n"
+        f"TASK: {state.task}\n"
+        f"App: {state.app_name} | Round: {state.round_num} / {state.max_rounds}\n\n"
+        f"PLAN:\n{plan_txt}\n\n"
+        f"CURRENT SUB-STEP: {current_step}\n\n"
+        f"INTERACTIVE ELEMENTS:\n{_elements_txt(elements)}\n\n"
+        f"KNOWLEDGE BASE DOCS:\n{docs_context or '(none — reason from screenshot directly)'}\n\n"
+        f"ACTION HISTORY {hist_note}:\n{history_lines}\n\n"
+        f"Respond ONLY with valid JSON matching this schema:\n{_DEPLOY_SCHEMA}"
+    )
+
+
+# ── Progress check prompt ──────────────────────────────────────────────────────
+
+def build_progress_prompt(task: str) -> str:
+    return (
+        f"Look at this screenshot. Has the following task been completed?\n\n"
+        f"Task: {task}\n\n"
+        f'Respond ONLY with valid JSON: {{"complete": true|false, "progress": "brief description of current state"}}'
+    )
+
+
+# ── Grid mode prompt ───────────────────────────────────────────────────────────
+
+def build_grid_prompt(task_or_thought: str) -> str:
+    return (
+        f"A 9x9 grid has been overlaid on the screenshot. "
+        f"Cells are labelled A1 (top-left) through I9 (bottom-right).\n\n"
+        f"Context: {task_or_thought}\n\n"
+        f"Which cell contains the element you need to interact with?\n\n"
+        f'Respond ONLY with valid JSON: {{"thought": "...", "grid_cell": "E5", "confidence": "high|medium|low"}}'
+    )

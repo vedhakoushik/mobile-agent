@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Env
+.env
+.env.local
+
+# Data
+kb_data/
+*.db
+*.sqlite3
+
+# Assets (font binary, fetched separately)
+backend/assets/*.ttf
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.log
