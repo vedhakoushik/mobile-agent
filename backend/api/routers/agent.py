@@ -14,6 +14,7 @@ from ...agent.state import AgentState, RunConfig
 from ...knowledge_base.store import KnowledgeBase
 from ...app_cards.loader import AppCardProvider
 from ...security.credentials import CredentialManager
+from ...graph.neo4j_client import NavigationGraph
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -25,6 +26,11 @@ _credentials = CredentialManager()
 
 # loaded once at import time — app_cards.json + markdown files are read from disk, never re-parsed per request
 _app_cards = AppCardProvider()
+
+# constructed once at import time — the neo4j driver itself is lazy (no connection
+# attempt happens until first record_transition/find_path call), so this never
+# blocks startup even if Neo4j is down
+_nav_graph = NavigationGraph()
 
 
 async def _run_and_release(coro, registry, serial):
@@ -53,6 +59,7 @@ def _make_state(session_id: str, config: RunConfig, request: Request, device_ser
         kb=kb,
         credentials=_credentials,
         app_card=app_card,
+        nav_graph=_nav_graph,
         ws_broadcast=ws_manager.broadcast,
     )
     return state

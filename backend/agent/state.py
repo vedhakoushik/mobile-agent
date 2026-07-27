@@ -25,6 +25,7 @@ class AgentState:
     kb: Any = None
     credentials: Any = None          # security.CredentialManager — resolves type_secret values
     app_card: Optional[str] = None    # static per-app guidance from app_cards.AppCardProvider, or None
+    nav_graph: Any = None             # graph.neo4j_client.NavigationGraph — records screen transitions during Explore
     ws_broadcast: Optional[Callable[..., Coroutine]] = None
 
     # per-round (overwritten each round)
@@ -32,6 +33,9 @@ class AgentState:
     screenshot_b64: str = ""          # current annotated screenshot
     raw_screenshot: bytes = b""       # raw bytes before annotation
     elements: list[dict] = field(default_factory=list)
+    last_screen_sig: Optional[str] = None      # screen signature from the previous round (before that round's action)
+    last_elem_sig: Optional[str] = None        # element signature of the action taken in the previous round
+    last_action_thought: str = ""              # decision["thought"] (truncated) from the previous round's action
 
     # multi-agent
     sub_steps: list[str] = field(default_factory=list)

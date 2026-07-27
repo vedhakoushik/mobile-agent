@@ -7,6 +7,17 @@ services:
       - ./kb_data:/chroma/chroma
     restart: unless-stopped
 
+  neo4j:
+    image: neo4j:latest
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/learnGraph123
+    volumes:
+      - ./neo4j_data:/data
+    restart: unless-stopped
+
   backend:
     build: ./backend
     ports:

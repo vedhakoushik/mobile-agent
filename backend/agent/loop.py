@@ -5,6 +5,7 @@ from ..perception import parse_interactive_elements, annotate_screenshot
 from ..llm import call_vision_llm, call_text_llm
 from ..llm.prompts import build_explore_prompt, build_deploy_prompt, build_progress_prompt
 from .state import AgentState
+from ..graph.neo4j_client import screen_signature
 from .planner import run_planner
 from .executor import execute_action
 from .reflector import run_reflector
@@ -29,6 +30,25 @@ async def run_explore(state: AgentState) -> None:
             # ── 2. Parse elements ─────────────────────────────────────────────
             elements = parse_interactive_elements(raw_xml)
             state.elements = [e.to_dict() for e in elements]
+
+            # current_screen_sig is the screen at the START of this round, i.e. the
+            # RESULT of the PREVIOUS round's action (or the initial screen if this is
+            # round 0). Pair it with state.last_screen_sig / state.last_elem_sig /
+            # state.last_action_thought (all captured at the END of the previous
+            # round) to record the transition that just became fully knowable.
+            # Do NOT pair it with this round's not-yet-decided action.
+            current_screen_sig = screen_signature(state.elements)
+            if state.nav_graph is not None and state.last_screen_sig is not None:
+                try:
+                    state.nav_graph.record_transition(
+                        app_name=state.app_name,
+                        from_screen_sig=state.last_screen_sig,
+                        element_sig=state.last_elem_sig or "unknown",
+                        element_text=state.last_action_thought,
+                        to_screen_sig=current_screen_sig,
+                    )
+                except Exception:
+                    pass  # never let graph recording break the explore run
 
             # ── 3. Annotate screenshot ────────────────────────────────────────
             annotated_b64 = annotate_screenshot(raw_png, elements)
@@ -115,6 +135,14 @@ async def run_explore(state: AgentState) -> None:
                 "action": decision,
                 "element_sig": elem_sig,
             })
+
+            # Stash this round's screen/action for pairing at the TOP of next round
+            # (that's when the resulting screen becomes known and the transition
+            # this action caused can actually be recorded).
+            state.last_screen_sig = current_screen_sig
+            state.last_elem_sig = elem_sig
+            state.last_action_thought = decision.get("thought", "")[:100]
+
             state.round_num += 1
 
     except Exception as e:
