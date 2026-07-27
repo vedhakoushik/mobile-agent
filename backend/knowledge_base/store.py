@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -61,8 +62,9 @@ class KnowledgeBase:
             metadata={"hnsw:space": "cosine"},
         )
 
-    def upsert(self, doc: ElementDoc) -> None:
-        self._col.upsert(
+    async def upsert(self, doc: ElementDoc) -> None:
+        await asyncio.to_thread(
+            self._col.upsert,
             ids=[doc.id],
             documents=[_build_document(doc)],
             metadatas=[{
@@ -86,7 +88,8 @@ class KnowledgeBase:
         ]
 
         try:
-            results = self._col.query(
+            results = await asyncio.to_thread(
+                self._col.query,
                 query_texts=query_texts,
                 n_results=2,
                 where={"app_name": self.app_name},

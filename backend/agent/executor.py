@@ -2,18 +2,26 @@ from ..device.controller import DeviceController, KEYCODE_BACK
 from ..perception.grid import overlay_grid
 from ..llm import call_vision_llm
 from ..llm.prompts import build_grid_prompt
+from ..security.credentials import CredentialNotFoundError
 
 
-async def execute_action(device: DeviceController, action: dict, elements: list[dict]) -> None:
+async def execute_action(
+    device: DeviceController,
+    action: dict,
+    elements: list[dict],
+    credentials=None,
+) -> None:
     """
     Execute the LLM-decided action on the Android device.
-    action: parsed action dict with keys: action, element_id, text_input, direction, grid_cell
+    action: parsed action dict with keys: action, element_id, text_input, direction, grid_cell, secret_id
+    credentials: security.CredentialManager, or None if no secrets.yaml is configured
     """
     action_type = action.get("action", "").lower()
     elem_id = action.get("element_id")
     text_input = action.get("text_input")
     direction = action.get("direction", "up")
     grid_cell = action.get("grid_cell")
+    secret_id = action.get("secret_id")
 
     if action_type == "tap" and elem_id is not None:
         elem = _find_element(elements, elem_id)
@@ -29,6 +37,20 @@ async def execute_action(device: DeviceController, action: dict, elements: list[
                 cx, cy = _center(elem)
                 await device.tap(cx, cy)
         await device.text(text_input)
+
+    elif action_type == "type_secret" and secret_id:
+        # tap the focused element first if specified, same as "text"
+        if elem_id is not None:
+            elem = _find_element(elements, elem_id)
+            if elem:
+                cx, cy = _center(elem)
+                await device.tap(cx, cy)
+        if credentials is not None:
+            try:
+                secret_value = credentials.resolve(secret_id)  # local var only — never
+                await device.text(secret_value)                 # stored, logged, or returned
+            except CredentialNotFoundError:
+                pass  # unknown secret_id — no-op, agent sees the field is still empty next round
 
     elif action_type == "swipe":
         from_x = from_y = None

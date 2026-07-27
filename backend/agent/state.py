@@ -9,6 +9,9 @@ class RunConfig:
     mode: Literal["explore", "deploy"]
     provider: str = "gemini"
     max_rounds: int = 20
+    max_tokens: Optional[int] = None
+    max_cost_usd: Optional[float] = None
+    max_llm_calls: Optional[int] = None
 
 
 @dataclass
@@ -19,6 +22,8 @@ class AgentState:
     # device + KB — injected by API layer
     device: Any = None
     kb: Any = None
+    credentials: Any = None          # security.CredentialManager — resolves type_secret values
+    app_card: Optional[str] = None    # static per-app guidance from app_cards.AppCardProvider, or None
     ws_broadcast: Optional[Callable[..., Coroutine]] = None
 
     # per-round (overwritten each round)
@@ -40,6 +45,9 @@ class AgentState:
     task_complete: bool = False
     failure_reason: Optional[str] = None
     errors: list[str] = field(default_factory=list)
+    tokens_used: int = 0
+    estimated_cost_usd: float = 0.0
+    llm_call_count: int = 0
 
     # convenience accessors
     @property

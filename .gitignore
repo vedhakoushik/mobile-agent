@@ -15,6 +15,7 @@ dist/
 # Env
 .env
 .env.local
+secrets.yaml
 
 # Data
 kb_data/

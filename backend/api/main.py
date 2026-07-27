@@ -11,19 +11,20 @@ load_dotenv()
 
 from .routers import device_router, agent_router, kb_router
 from .ws.manager import ws_manager
-from ..device.controller import DeviceController, ADBError
+from ..device.registry import DeviceRegistry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup
-    ctrl = DeviceController(serial=os.getenv("ANDROID_SERIAL"))
+    registry = DeviceRegistry()
     try:
-        ctrl.connect()
-        print(f"[startup] Connected to device: {ctrl.serial} {ctrl.resolution}")
-    except ADBError as e:
-        print(f"[startup] WARNING: {e} — continue without device")
-    app.state.device = ctrl
+        connected = await registry.discover_and_connect()
+    except Exception as e:
+        print(f"[startup] WARNING: device discovery failed: {e} — continue with zero devices")
+        connected = []
+    print(f"[startup] Connected to {len(connected)} device(s): {connected}")
+    app.state.devices = registry
 
     yield
 

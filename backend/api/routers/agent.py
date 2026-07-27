@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -11,24 +12,47 @@ from ..ws.manager import ws_manager
 from ...agent.loop import run_explore, run_deploy
 from ...agent.state import AgentState, RunConfig
 from ...knowledge_base.store import KnowledgeBase
+from ...app_cards.loader import AppCardProvider
+from ...security.credentials import CredentialManager
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 # active sessions: session_id -> AgentState
 _sessions: dict[str, AgentState] = {}
 
+# loaded once at import time — secrets.yaml is read from disk, never re-parsed per request
+_credentials = CredentialManager()
 
-def _make_state(session_id: str, config: RunConfig, request: Request) -> AgentState:
-    device = request.app.state.device
-    if device is None or not device.is_connected():
-        raise HTTPException(status_code=503, detail="No Android device connected")
+# loaded once at import time — app_cards.json + markdown files are read from disk, never re-parsed per request
+_app_cards = AppCardProvider()
+
+
+async def _run_and_release(coro, registry, serial):
+    try:
+        await coro
+    finally:
+        registry.release(serial)
+
+
+def _make_state(session_id: str, config: RunConfig, request: Request, device_serial: Optional[str] = None) -> AgentState:
+    registry = request.app.state.devices
+    acquired = registry.acquire(device_serial)
+    if acquired is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No idle Android device available" if device_serial is None else f"Device '{device_serial}' not found or busy",
+        )
+    serial, device = acquired
 
     kb = KnowledgeBase(app_name=config.app_name)
+    app_card = _app_cards.get(config.app_name)
     state = AgentState(
         session_id=session_id,
         config=config,
         device=device,
         kb=kb,
+        credentials=_credentials,
+        app_card=app_card,
         ws_broadcast=ws_manager.broadcast,
     )
     return state
@@ -43,10 +67,11 @@ async def start_explore(body: ExploreRequest, request: Request):
         mode="explore",
         provider=body.provider,
         max_rounds=body.max_rounds,
+        max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
     )
-    state = _make_state(session_id, config, request)
+    state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(run_explore(state), name=f"explore-{session_id}")
+    asyncio.create_task(_run_and_release(run_explore(state), request.app.state.devices, state.device.serial), name=f"explore-{session_id}")
     return SessionResponse(session_id=session_id, message="Exploration started")
 
 
@@ -59,10 +84,11 @@ async def start_deploy(body: DeployRequest, request: Request):
         mode="deploy",
         provider=body.provider,
         max_rounds=body.max_rounds,
+        max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
     )
-    state = _make_state(session_id, config, request)
+    state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(run_deploy(state), name=f"deploy-{session_id}")
+    asyncio.create_task(_run_and_release(run_deploy(state), request.app.state.devices, state.device.serial), name=f"deploy-{session_id}")
     return SessionResponse(session_id=session_id, message="Deployment started")
 
 
@@ -78,6 +104,7 @@ async def get_status(session_id: str):
         task_complete=state.task_complete,
         failure_reason=state.failure_reason,
         errors=state.errors[-5:],
+        tokens_used=state.tokens_used, estimated_cost_usd=state.estimated_cost_usd, llm_call_count=state.llm_call_count,
     )
 
 

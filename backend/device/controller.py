@@ -83,9 +83,10 @@ class DeviceController:
         await asyncio.to_thread(self._device.shell, f"input tap {x} {y}")
         await asyncio.sleep(0.8)
 
-    async def text(self, content: str) -> None:
-        escaped = (
-            content
+    @staticmethod
+    def _escape_shell_text(chunk: str) -> str:
+        return (
+            chunk
             .replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace(" ", "%s")
@@ -94,7 +95,17 @@ class DeviceController:
             .replace(";", "\\;")
             .replace("\"", "\\\"")
         )
-        await asyncio.to_thread(self._device.shell, f"input text '{escaped}'")
+
+    async def text(self, content: str, chunk_size: int = 4) -> None:
+        # `adb shell input text` drops/garbles characters on longer strings —
+        # the injected key events outrun the IME on some devices/emulators.
+        # Sending in small chunks with a short pause between each is the
+        # standard workaround.
+        for i in range(0, len(content), chunk_size):
+            chunk = content[i:i + chunk_size]
+            escaped = self._escape_shell_text(chunk)
+            await asyncio.to_thread(self._device.shell, f"input text '{escaped}'")
+            await asyncio.sleep(0.12)
         await asyncio.sleep(0.3)
 
     async def swipe(self, direction: str, from_x: Optional[int] = None, from_y: Optional[int] = None) -> None:

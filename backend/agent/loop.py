@@ -8,6 +8,7 @@ from .state import AgentState
 from .planner import run_planner
 from .executor import execute_action
 from .reflector import run_reflector
+from ..llm.pricing import estimate_cost_usd
 
 
 async def run_explore(state: AgentState) -> None:
@@ -57,6 +58,18 @@ async def run_explore(state: AgentState) -> None:
             # attach provider for grid mode sub-calls
             decision["_provider"] = state.provider
 
+            usage = decision.pop("_usage", {})
+            state.llm_call_count += 1
+            state.tokens_used += usage.get("total_tokens", 0)
+            state.estimated_cost_usd += estimate_cost_usd(state.provider, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+
+            cfg = state.config
+            if (cfg.max_tokens is not None and state.tokens_used >= cfg.max_tokens) or \
+               (cfg.max_cost_usd is not None and state.estimated_cost_usd >= cfg.max_cost_usd) or \
+               (cfg.max_llm_calls is not None and state.llm_call_count >= cfg.max_llm_calls):
+                state.failure_reason = f"Usage limit reached (tokens={state.tokens_used}, cost=${state.estimated_cost_usd:.4f}, calls={state.llm_call_count})"
+                break
+
             # ── 7. Broadcast action event ─────────────────────────────────────
             await state.broadcast({
                 "type": "action_event",
@@ -73,7 +86,7 @@ async def run_explore(state: AgentState) -> None:
                 break
 
             # ── 9. Execute action ─────────────────────────────────────────────
-            await execute_action(state.device, decision, state.elements)
+            await execute_action(state.device, decision, state.elements, state.credentials)
 
             # ── 10. Wait for UI to settle ─────────────────────────────────────
             await state.device.wait_idle()
@@ -162,6 +175,18 @@ async def run_deploy(state: AgentState) -> None:
 
             decision["_provider"] = state.provider
 
+            usage = decision.pop("_usage", {})
+            state.llm_call_count += 1
+            state.tokens_used += usage.get("total_tokens", 0)
+            state.estimated_cost_usd += estimate_cost_usd(state.provider, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+
+            cfg = state.config
+            if (cfg.max_tokens is not None and state.tokens_used >= cfg.max_tokens) or \
+               (cfg.max_cost_usd is not None and state.estimated_cost_usd >= cfg.max_cost_usd) or \
+               (cfg.max_llm_calls is not None and state.llm_call_count >= cfg.max_llm_calls):
+                state.failure_reason = f"Usage limit reached (tokens={state.tokens_used}, cost=${state.estimated_cost_usd:.4f}, calls={state.llm_call_count})"
+                break
+
             await state.broadcast({
                 "type": "action_event",
                 "round": state.round_num,
@@ -181,7 +206,7 @@ async def run_deploy(state: AgentState) -> None:
                 state.failure_reason = decision.get("thought", "Task marked impossible by agent")
 
             # ── 6–7: Execute + wait ───────────────────────────────────────────
-            await execute_action(state.device, decision, state.elements)
+            await execute_action(state.device, decision, state.elements, state.credentials)
             await state.device.wait_idle()
 
             # ── 8. Advance sub-step index if current step likely complete ─────
@@ -200,6 +225,10 @@ async def run_deploy(state: AgentState) -> None:
                         progress_b64,
                         build_progress_prompt(state.task),
                     )
+                    prog_usage = prog.pop("_usage", {})
+                    state.llm_call_count += 1
+                    state.tokens_used += prog_usage.get("total_tokens", 0)
+                    state.estimated_cost_usd += estimate_cost_usd(state.provider, prog_usage.get("prompt_tokens", 0), prog_usage.get("completion_tokens", 0))
                     if prog.get("complete"):
                         state.task_complete = True
                         await state.broadcast({
