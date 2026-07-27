@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DeployWorkflow Diagram</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: sans-serif; margin: 2rem; background: #fafafa; }
+  h1 { font-size: 1.4rem; }
+  .mermaid { background: #fff; padding: 1rem; border: 1px solid #ddd; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>DeployWorkflow — step/event graph</h1>
+<div class="mermaid">
+flowchart TD
+    advance_step["advance_step"]
+    ActionExecuted{{"ActionExecuted"}}
+    RoundStarted{{"RoundStarted"}}
+    StopEvent{{"StopEvent"}}
+    capture_step["capture_step"]
+    ScreenCaptured{{"ScreenCaptured"}}
+    context_step["context_step"]
+    ElementsParsed{{"ElementsParsed"}}
+    ContextRetrieved{{"ContextRetrieved"}}
+    decision_step["decision_step"]
+    DecisionMade{{"DecisionMade"}}
+    execute_step["execute_step"]
+    parse_step["parse_step"]
+    start_step["start_step"]
+    StartEvent{{"StartEvent"}}
+    advance_step --> RoundStarted
+    advance_step --> StopEvent
+    ActionExecuted --> advance_step
+    capture_step --> ScreenCaptured
+    capture_step --> RoundStarted
+    RoundStarted --> capture_step
+    context_step --> ContextRetrieved
+    ElementsParsed --> context_step
+    decision_step --> DecisionMade
+    decision_step --> RoundStarted
+    decision_step --> StopEvent
+    ContextRetrieved --> decision_step
+    execute_step --> ActionExecuted
+    DecisionMade --> execute_step
+    parse_step --> ElementsParsed
+    ScreenCaptured --> parse_step
+    start_step --> RoundStarted
+    StartEvent --> start_step
+</div>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+</body>
+</html>
