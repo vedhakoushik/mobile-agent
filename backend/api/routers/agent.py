@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import (
     ExploreRequest, DeployRequest,
+    FanoutDeployRequest, FanoutDeployResponse, FanoutSessionResult,
     SessionResponse, AgentStatusResponse,
 )
 from ..ws.manager import ws_manager
@@ -98,6 +99,59 @@ async def start_deploy(body: DeployRequest, request: Request):
     _sessions[session_id] = state
     asyncio.create_task(_run_and_release(run_deploy(state), request.app.state.devices, state.device.serial), name=f"deploy-{session_id}")
     return SessionResponse(session_id=session_id, message="Deployment started")
+
+
+@router.post("/deploy/fanout", response_model=FanoutDeployResponse)
+async def start_deploy_fanout(body: FanoutDeployRequest, request: Request):
+    registry = request.app.state.devices
+    results: list[FanoutSessionResult] = []
+
+    for serial in body.device_serials:
+        acquired = registry.acquire(serial)
+        if acquired is None:
+            results.append(FanoutSessionResult(
+                device_serial=serial,
+                session_id=None,
+                started=False,
+                detail="not found or busy",
+            ))
+            continue
+
+        acquired_serial, device = acquired
+        session_id = str(uuid.uuid4())
+        config = RunConfig(
+            app_name=body.app_name,
+            task=body.task,
+            mode="deploy",
+            provider=body.provider,
+            reasoning_mode=body.reasoning_mode,
+            max_rounds=body.max_rounds,
+            max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
+        )
+        kb = KnowledgeBase(app_name=config.app_name)
+        app_card = _app_cards.get(config.app_name)
+        state = AgentState(
+            session_id=session_id,
+            config=config,
+            device=device,
+            kb=kb,
+            credentials=_credentials,
+            app_card=app_card,
+            nav_graph=_nav_graph,
+            ws_broadcast=ws_manager.broadcast,
+        )
+        _sessions[session_id] = state
+        asyncio.create_task(
+            _run_and_release(run_deploy(state), registry, acquired_serial),
+            name=f"deploy-fanout-{session_id}",
+        )
+        results.append(FanoutSessionResult(
+            device_serial=serial,
+            session_id=session_id,
+            started=True,
+        ))
+
+    return FanoutDeployResponse(results=results)
 
 
 @router.get("/{session_id}", response_model=AgentStatusResponse)

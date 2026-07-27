@@ -64,6 +64,29 @@ class DeployRequest(BaseModel):
     max_llm_calls: Optional[int] = None
 
 
+class FanoutDeployRequest(BaseModel):
+    task: str
+    app_name: str
+    device_serials: list[str]
+    max_rounds: int = 30
+    provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
+    reasoning_mode: Literal["reasoning", "fast"] = "reasoning"
+    max_tokens: Optional[int] = None
+    max_cost_usd: Optional[float] = None
+    max_llm_calls: Optional[int] = None
+
+
+class FanoutSessionResult(BaseModel):
+    device_serial: str
+    session_id: Optional[str] = None
+    started: bool
+    detail: Optional[str] = None
+
+
+class FanoutDeployResponse(BaseModel):
+    results: list[FanoutSessionResult]
+
+
 class SessionResponse(BaseModel):
     session_id: str
     message: str = ""
