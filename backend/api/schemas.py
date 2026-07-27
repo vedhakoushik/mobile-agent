@@ -58,6 +58,7 @@ class DeployRequest(BaseModel):
     max_rounds: int = 30
     device_serial: Optional[str] = None
     provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
+    reasoning_mode: Literal["reasoning", "fast"] = "reasoning"
     max_tokens: Optional[int] = None
     max_cost_usd: Optional[float] = None
     max_llm_calls: Optional[int] = None
@@ -78,6 +79,7 @@ class AgentStatusResponse(BaseModel):
     tokens_used: int = 0
     estimated_cost_usd: float = 0.0
     llm_call_count: int = 0
+    escalation_count: int = 0
 
 
 # ── Knowledge Base ────────────────────────────────────────────────────────────

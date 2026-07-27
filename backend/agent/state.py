@@ -7,6 +7,7 @@ class RunConfig:
     app_name: str
     task: str
     mode: Literal["explore", "deploy"]
+    reasoning_mode: Literal["reasoning", "fast"] = "reasoning"
     provider: str = "gemini"
     max_rounds: int = 20
     max_tokens: Optional[int] = None
@@ -48,6 +49,7 @@ class AgentState:
     tokens_used: int = 0
     estimated_cost_usd: float = 0.0
     llm_call_count: int = 0
+    escalation_count: int = 0
 
     # convenience accessors
     @property

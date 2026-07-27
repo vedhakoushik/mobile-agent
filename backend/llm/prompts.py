@@ -22,7 +22,7 @@ _EXPLORE_SCHEMA = """{
 _DEPLOY_SCHEMA = """{
   "thought":     "Your reasoning about advancing the task",
   "observation": "Current screen state relevant to the task",
-  "action":      "tap | text | swipe | long_press | grid | type_secret | finish",
+  "action":      "tap | text | swipe | long_press | grid | type_secret | escalate | finish",
   "element_id":  <integer ID or null>,
   "text_input":  "<string to type or null>",
   "direction":   "up | down | left | right | null",
@@ -147,6 +147,7 @@ search as done — a search for different or unrelated content is not progress o
 not guess or fabricate one. If the field needs a known credential, use "type_secret" with the \
 exact secret_id from AVAILABLE SECRETS instead. If no matching secret_id exists, do not attempt \
 the login — use "finish" with failure_reason-style thought explaining the missing credential.
+- If you're reasoning from the element list alone (no screenshot) and cannot confidently identify the right element from resource_id/class_name/text/content_desc — e.g. multiple ambiguous candidates, or the element you need has no identifying text/icon description — use action "escalate" instead of guessing. This requests the actual screenshot for this round.
 - Respond ONLY with valid JSON — no prose outside the JSON"""
 
 

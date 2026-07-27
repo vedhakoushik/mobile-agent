@@ -83,6 +83,7 @@ async def start_deploy(body: DeployRequest, request: Request):
         task=body.task,
         mode="deploy",
         provider=body.provider,
+        reasoning_mode=body.reasoning_mode,
         max_rounds=body.max_rounds,
         max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
     )
@@ -104,7 +105,7 @@ async def get_status(session_id: str):
         task_complete=state.task_complete,
         failure_reason=state.failure_reason,
         errors=state.errors[-5:],
-        tokens_used=state.tokens_used, estimated_cost_usd=state.estimated_cost_usd, llm_call_count=state.llm_call_count,
+        tokens_used=state.tokens_used, estimated_cost_usd=state.estimated_cost_usd, llm_call_count=state.llm_call_count, escalation_count=state.escalation_count,
     )
 
 

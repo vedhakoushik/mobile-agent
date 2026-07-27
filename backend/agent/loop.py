@@ -167,7 +167,13 @@ async def run_deploy(state: AgentState) -> None:
             # ── 4. Deploy LLM decision ────────────────────────────────────────
             prompt = build_deploy_prompt(state, state.elements, docs_context)
             try:
-                decision = await call_vision_llm(state.provider, annotated_b64, prompt)
+                if state.config.reasoning_mode == "fast":
+                    decision = await call_text_llm(state.provider, prompt)
+                    if decision.get("action") == "escalate":
+                        state.escalation_count += 1
+                        decision = await call_vision_llm(state.provider, annotated_b64, prompt)
+                else:
+                    decision = await call_vision_llm(state.provider, annotated_b64, prompt)
             except Exception as e:
                 state.errors.append(f"Round {state.round_num} LLM error: {e}")
                 state.round_num += 1
