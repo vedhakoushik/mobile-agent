@@ -72,6 +72,28 @@ This installs the system image via `sdkmanager`, creates the AVD if it doesn't e
 headless (`-no-window -no-audio`), waits for boot completion, and dismisses the keyguard. Requires
 `sdkmanager`, `avdmanager`, and `emulator` on `PATH` (part of Android SDK cmdline-tools).
 
+## Navigation graph (optional, Neo4j)
+
+Explore mode records screen-to-screen transitions if Neo4j is reachable — entirely optional, fails
+soft if it isn't (`backend/graph/neo4j_client.py`). Bring it up via `docker compose up neo4j` (see
+`docker-compose.yml`) or standalone:
+```bash
+docker run -d --name mobile-agent-neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/learnGraph123 neo4j:latest
+```
+Defaults (`bolt://localhost:7687`, `neo4j`/`learnGraph123`) match `docker-compose.yml`'s service —
+override via `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD` in `.env` if you're pointing at something
+else. Browse the graph at `http://localhost:7474`. Nothing reads from it yet (write-only today) —
+see [docs/ARCHITECTURE.md](ARCHITECTURE.md#navigation-graph-neo4j).
+
+## Observability (optional, Langfuse)
+
+Unset by default — zero behavior change, zero network calls. To enable: get free-tier keys at
+[cloud.langfuse.com](https://cloud.langfuse.com), set `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`
+in `.env`, restart the backend. Every Explore/Deploy session becomes a trace, every LLM call a
+nested generation — provider, latency, token usage, redacted prompt (screenshots are never sent,
+logged as `"[+1 image, omitted]"` instead). See
+[docs/ARCHITECTURE.md](ARCHITECTURE.md#langfuse-observability-optional).
+
 ## Credentials (for the `type_secret` action)
 
 If a task needs to type a password/PIN/token, don't let the LLM guess or fabricate one:
@@ -170,6 +192,13 @@ device connected. Reports three metrics: **Task Success Rate** (fraction complet
 
 ## Common issues
 
+- **Emulator crashes on boot with a "bad color buffer handle" / GPU error** — happened during
+  development when running Ollama (VRAM-heavy vision model) and the emulator's hardware-accelerated
+  rendering (`-gpu host`, the default) on the same GPU at once, on an 8GB-class card. Under
+  contention Windows can trigger a driver TDR (Timeout Detection and Recovery) reset, which
+  invalidates the emulator's GPU context mid-render. Fix: launch with `-gpu swiftshader_indirect`
+  (software rendering — slower, but avoids the VRAM fight entirely), or don't run local Ollama
+  vision inference and the emulator simultaneously on a memory-constrained GPU.
 - **`503 No idle Android device available`** — `adb devices` must show at least one target as
   `device` (not `unauthorized` or `offline`) before starting the backend, or before calling any
   device/agent endpoint. The registry connects to everything visible once at FastAPI startup

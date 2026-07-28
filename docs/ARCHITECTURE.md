@@ -166,6 +166,93 @@ the run with `failure_reason = "Usage limit reached (...)"` the round a limit is
 computed via `llm/pricing.py`'s static $/1M-token table, which is explicitly approximate
 (override via env vars) — free/local providers (Ollama) are hardcoded to $0.
 
+## Dual reasoning/fast mode (Deploy only)
+
+`RunConfig.reasoning_mode` (`"reasoning"` default, or `"fast"`) controls whether Deploy calls
+`call_vision_llm` every round (default, unchanged) or tries `call_text_llm` first — the exact same
+prompt string from `build_deploy_prompt`, since it's already pure text; the screenshot is a
+separate parameter to `call_vision_llm`, never embedded in the prompt itself. In fast mode, if the
+model's response has `action: "escalate"` (a schema addition — used when it can't confidently pick
+an element from resource_id/class_name/text/content_desc alone), that one round falls back to a
+real vision call. `AgentState.escalation_count` tracks how often this happened. Measured live: a
+default-mode round used 4663 tokens (full screenshot); fast-mode rounds averaged ~1424 tokens each
+— confirms the image is genuinely being skipped, not just a flag with no effect.
+
+## Navigation graph (Neo4j)
+
+`backend/graph/neo4j_client.py`'s `NavigationGraph` records screen-to-screen transitions during
+Explore as `(Screen {app_name, sig})-[:LEADS_TO {element_sig, element_text}]->(Screen)`, where
+`sig` is `screen_signature()` — a hash of the sorted `(resource_id, class_name)` pairs currently
+visible (falls back to hashing `class_name`s alone if nothing has a `resource_id`).
+
+The non-obvious part: `state.elements` is parsed at the *top* of each round, before that round's
+action is even decided — so the signature computed there is actually the *result* of the
+*previous* round's action, not something this round will act on. `run_explore` handles this by
+stashing `last_screen_sig`/`last_elem_sig`/`last_action_thought` at the end of each round and
+pairing them against the freshly-computed signature at the start of the next one — the transition
+only becomes fully knowable one round later than it happened.
+
+Graph writes are entirely fail-soft (`NavigationGraph`'s driver is lazy — never connects until
+first use — and every method wraps its body in try/except, logs, and returns `None`/no-op rather
+than raising), so a Neo4j outage can't break Explore mode. Nothing reads from the graph yet — it's
+write-only infrastructure today, seeded for a future Deploy-time path-lookup feature. Optional
+`neo4j` service in `docker-compose.yml`.
+
+## Demonstration recording/replay
+
+`backend/demonstrations/` — human-driven task recordings replayed with state-drift detection
+rather than blind coordinate replay. `DemonstrationRecorder.capture_step()` snapshots a lightweight
+pre-state (visible `(resource_id, class_name)` pairs, not full XML/screenshots — keeps macro files
+small) before each step. `DemonstrationPlayer.replay()` re-captures live state before every step
+and computes Jaccard similarity against the recorded pre-state; below `state_similarity_threshold`
+(default 0.7), it either stops (`on_drift="stop"`) or skips that step (`on_drift="skip"`) rather
+than tapping a coordinate that might now hit something else entirely. `type_secret` steps resolve
+credentials the same way `executor.py` already does — the value is a local variable only, never
+stored in the macro file or the replay result. Not wired into any API endpoint yet — standalone,
+tested modules (`recorder.py`, `player.py`) ready for a future wiring task.
+
+## Multi-device fan-out
+
+`POST /agent/deploy/fanout` runs the same task across N devices concurrently — a thin loop over
+`DeviceRegistry.acquire()` per serial in `backend/api/routers/agent.py`, reusing the exact same
+`RunConfig`/`AgentState` construction and `_run_and_release` wrapper single-device Deploy already
+uses. A device that's busy or doesn't exist doesn't abort the batch — each device gets its own
+`started: true/false` + `detail` in the response, so a partial fan-out (some devices free, some
+busy) still starts sessions on whichever devices were actually available.
+
+## LlamaIndex Workflows port (experimental, not wired in)
+
+`backend/agent/deploy_workflow.py`'s `DeployWorkflow` is a typed-`Event`, `@step`-based
+reimplementation of `run_deploy`, built on the standalone `llama-index-workflows` package (not the
+full `llama-index` RAG framework). Every step boundary is a real Pydantic model — validated, not a
+loose dict. Diagram generation via `generate_diagram()` (the installed SDK has no
+`draw_all_possible_flows` utility — that's a full-`llama-index` API — so this uses
+`workflows.representation.get_workflow_representation()` to introspect the step/event graph and
+emit a self-contained Mermaid HTML file instead; see `docs/deploy_workflow.html`).
+
+Deliberately **not wired into any API endpoint** — it's a parallel, isolated path proven correct in
+standalone testing (including catching and fixing a real bug: `context_step` initially passed
+dict-form elements into `KnowledgeBase.retrieve_context()`, which needs attribute access —
+`e.class_name`, not `e['class_name']` — on the raw parsed element shape; fixed with a
+`SimpleNamespace` shim rather than touching `store.py`), not a replacement for the proven
+`run_deploy`. Wiring it in as a selectable execution mode is future work.
+
+## Langfuse observability (optional)
+
+`backend/observability/langfuse_client.py` — fully optional LLM tracing. Disabled entirely (zero
+network calls, zero behavior change) unless `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` are set,
+following the same fail-soft pattern as the Neo4j graph writes. `call_vision_llm`/
+`call_dual_vision_llm`/`call_text_llm` each take an optional `trace=None` parameter — every
+existing call site (`planner.py`, `reflector.py`, `executor.py`'s grid mode) is unaffected since
+they don't pass it. `run_explore`/`run_deploy` start a session trace and thread it through every
+LLM call site, closing it out on both the success and exception paths.
+
+Uses Langfuse's OTEL-based v4 SDK (`create_trace_id` + `start_observation`, not the older
+`.trace()` method some docs/tutorials show — verify against whatever version actually installs).
+Raw screenshot bytes are never sent to Langfuse (logged as `"[+1 image, omitted]"` instead) to
+avoid bloating trace storage. Resolved `type_secret` values were already guaranteed to never enter
+a prompt anywhere in this codebase, so no separate redaction step was needed for those.
+
 ## Perception details worth knowing
 
 - **Element numbering is not stable across rounds.** IDs are reassigned every round from a fresh

@@ -13,10 +13,16 @@ The agent talks to a real device or emulator over ADB, reasons with a vision-cap
 (Gemini, GPT-4o, Claude, GLM, Cerebras, or a local Ollama model), and streams its progress live to
 a React dashboard over WebSocket.
 
-Also supports **multiple devices at once** (USB or wireless ADB), a **credential vault** for
-typing passwords without ever exposing the value to the LLM, hand-written **app cards** for
-instant per-app guidance without exploring first, and a **usage limiter** to cap a run by token
-count, cost, or call count.
+Also supports **multiple devices at once** (USB or wireless ADB, with a fan-out endpoint to run
+one task across several devices concurrently), a **credential vault** for typing passwords without
+ever exposing the value to the LLM, hand-written **app cards** for instant per-app guidance without
+exploring first, a **usage limiter** to cap a run by token count, cost, or call count, a **dual
+reasoning/fast mode** for Deploy (skip the vision call when a text-only pass over the element list
+is enough), a **Neo4j navigation graph** that Explore mode builds up as it runs, **human
+demonstration recording/replay** with state-drift detection, and optional **Langfuse** tracing.
+There's also an experimental [LlamaIndex Workflows](https://pypi.org/project/llama-index-workflows/)
+port of the Deploy loop (`backend/agent/deploy_workflow.py`) — typed events, not yet wired into the
+API.
 
 Inspired by AppAgent, DroidRun, and MobileAgent. See
 [docs/COMPARISON.md](docs/COMPARISON.md) for an honest look at how this stacks up against those —

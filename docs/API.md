@@ -123,7 +123,8 @@ Starts Explore mode: systematically interacts with UI elements and builds the kn
 
 ### `POST /api/v1/agent/deploy`
 Starts Deploy mode: decomposes `task` into sub-steps and executes them. Accepts the same
-`device_serial` / `max_tokens` / `max_cost_usd` / `max_llm_calls` fields as `/explore` above.
+`device_serial` / `max_tokens` / `max_cost_usd` / `max_llm_calls` fields as `/explore` above, plus
+`reasoning_mode`.
 ```json
 // request
 {
@@ -131,11 +132,36 @@ Starts Deploy mode: decomposes `task` into sub-steps and executes them. Accepts 
   "app_name": "linkedin",
   "max_rounds": 30,
   "provider": "gemini",
+  "reasoning_mode": "reasoning",   // "reasoning" (default, vision every round) | "fast" (text-only first, escalates to vision only when the model can't confidently pick an element)
   "max_llm_calls": 25
 }
 // response
 { "session_id": "b3f1...-uuid", "message": "Deployment started" }
 ```
+
+### `POST /api/v1/agent/deploy/fanout`
+Runs the same Deploy task across multiple devices concurrently. Same fields as `/deploy` except
+`device_serials` (a list) replaces `device_serial` — targets are explicit, no auto-pick. A device
+that's busy or unknown doesn't abort the batch; check each result's `started` flag.
+```json
+// request
+{
+  "task": "Search for Python developer roles",
+  "app_name": "linkedin",
+  "device_serials": ["emulator-5554", "192.168.1.5:5555"],
+  "provider": "ollama",
+  "max_llm_calls": 10
+}
+// response — 200 always, per-device outcome in results
+{
+  "results": [
+    { "device_serial": "emulator-5554", "session_id": "4d93...-uuid", "started": true, "detail": null },
+    { "device_serial": "192.168.1.5:5555", "session_id": null, "started": false, "detail": "not found or busy" }
+  ]
+}
+```
+Each `started: true` entry's `session_id` is followed exactly like a normal Deploy session
+(`GET /agent/{session_id}`) — no special-casing.
 
 ### `GET /api/v1/agent/{session_id}`
 Poll current status of a run (also used by `scripts/run_benchmark.py`).
@@ -149,7 +175,8 @@ Poll current status of a run (also used by `scripts/run_benchmark.py`).
   "errors": [],                   // last 5 error strings, if any
   "tokens_used": 5305,
   "estimated_cost_usd": 0.0,
-  "llm_call_count": 1
+  "llm_call_count": 1,
+  "escalation_count": 0          // Deploy + reasoning_mode="fast" only: how many rounds fell back to a vision call
 }
 ```
 `404` if the session ID is unknown (never started, or process restarted since). A device acquired
