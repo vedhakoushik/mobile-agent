@@ -6,10 +6,11 @@ from typing import Optional
 import adbutils
 
 
-KEYCODE_BACK  = 4
-KEYCODE_HOME  = 3
-KEYCODE_ENTER = 66
-KEYCODE_DEL   = 67
+KEYCODE_BACK      = 4
+KEYCODE_HOME      = 3
+KEYCODE_ENTER     = 66
+KEYCODE_DEL       = 67
+KEYCODE_MOVE_END  = 123
 
 
 class ADBError(Exception):
@@ -134,6 +135,18 @@ class DeviceController:
     async def key_event(self, code: int) -> None:
         await asyncio.to_thread(self._device.shell, f"input keyevent {code}")
         await asyncio.sleep(0.3)
+
+    async def clear_text(self, max_chars: int = 80) -> None:
+        """Clears the currently focused text field before typing into it.
+        Without this, a retried/interrupted round's `text` action appends to
+        whatever's already there instead of replacing it — observed producing
+        garbled concatenated queries during testing. Moves the cursor to the
+        end first (KEYCODE_MOVE_END) so backspace clears regardless of where
+        the cursor happened to be, then backspaces up to max_chars — all in
+        one shell round-trip, not one call per keystroke."""
+        codes = " ".join([str(KEYCODE_MOVE_END)] + [str(KEYCODE_DEL)] * max_chars)
+        await asyncio.to_thread(self._device.shell, f"input keyevent {codes}")
+        await asyncio.sleep(0.2)
 
     async def wait_idle(self) -> None:
         await asyncio.to_thread(self._device.shell, "uiautomator dump /dev/null")

@@ -36,6 +36,10 @@ async def execute_action(
             if elem:
                 cx, cy = _center(elem)
                 await device.tap(cx, cy)
+        # clear any pre-existing content first — without this, a retried or
+        # interrupted round appends to whatever's already in the field instead
+        # of replacing it, producing garbled concatenated text
+        await device.clear_text()
         await device.text(text_input)
 
     elif action_type == "type_secret" and secret_id:
@@ -48,7 +52,8 @@ async def execute_action(
         if credentials is not None:
             try:
                 secret_value = credentials.resolve(secret_id)  # local var only — never
-                await device.text(secret_value)                 # stored, logged, or returned
+                await device.clear_text()                       # stored, logged, or returned
+                await device.text(secret_value)
             except CredentialNotFoundError:
                 pass  # unknown secret_id — no-op, agent sees the field is still empty next round
 

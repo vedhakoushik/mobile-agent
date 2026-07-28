@@ -75,6 +75,7 @@ class DemonstrationPlayer:
                 if action_type == "tap":
                     await self.device.tap(params["x"], params["y"])
                 elif action_type == "text":
+                    await self.device.clear_text()
                     await self.device.text(params["content"])
                 elif action_type == "swipe":
                     await self.device.swipe(
@@ -103,6 +104,7 @@ class DemonstrationPlayer:
                         continue
                     try:
                         secret_value = self.credentials.resolve(secret_id)
+                        await self.device.clear_text()
                         await self.device.text(secret_value)
                     except CredentialNotFoundError:
                         failures.append({
