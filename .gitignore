@@ -19,6 +19,7 @@ secrets.yaml
 
 # Data
 kb_data/
+backend/chroma_data/
 *.db
 *.sqlite3
 

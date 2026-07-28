@@ -100,9 +100,12 @@ async def call_text_llm(provider: str, prompt: str, trace=None) -> dict[str, Any
 # ── Gemini ────────────────────────────────────────────────────────────────────
 
 
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
 async def _gemini_request(parts: list[dict]) -> dict:
-    """POST to Gemini REST, retrying on 429 — the free tier's per-minute quota is
-    low enough that a multi-round agent run trips it routinely."""
+    """POST to Gemini REST, retrying on 429 (free-tier quota) and transient server
+    errors (500/502/503/504 — Google's side, e.g. brief overload) alike."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={os.environ['GEMINI_API_KEY']}"
     headers = {"Content-Type": "application/json"}
     body = {
@@ -113,7 +116,7 @@ async def _gemini_request(parts: list[dict]) -> dict:
     async with httpx.AsyncClient() as client:
         for attempt in range(len(delays) + 1):
             resp = await client.post(url, json=body, headers=headers, timeout=60.0)
-            if resp.status_code == 429 and attempt < len(delays):
+            if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < len(delays):
                 await asyncio.sleep(delays[attempt])
                 continue
             break
