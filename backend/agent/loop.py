@@ -16,6 +16,8 @@ async def run_explore(state: AgentState) -> None:
     """Explore phase: systematically interact with all UI elements and build KB."""
     state.status = "running"
     await state.broadcast({"type": "status_change", "status": "running", "mode": "explore"})
+    from ..observability.langfuse_client import start_session_trace, end_session_trace
+    trace = start_session_trace(state.session_id, mode="explore", app_name=state.app_name, task=state.task)
 
     try:
         while state.round_num < state.max_rounds and not state.task_complete:
@@ -69,7 +71,7 @@ async def run_explore(state: AgentState) -> None:
             # ── 6. LLM decision ───────────────────────────────────────────────
             prompt = build_explore_prompt(state, state.elements, docs_context)
             try:
-                decision = await call_vision_llm(state.provider, annotated_b64, prompt)
+                decision = await call_vision_llm(state.provider, annotated_b64, prompt, trace=trace)
             except Exception as e:
                 state.errors.append(f"Round {state.round_num} LLM error: {e}")
                 state.round_num += 1
@@ -149,9 +151,11 @@ async def run_explore(state: AgentState) -> None:
         state.status = "error"
         state.errors.append(str(e))
         await state.broadcast({"type": "error", "message": str(e)})
+        end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
         return
 
     state.status = "done"
+    end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
     await state.broadcast({
         "type": "status_change",
         "status": "done",
@@ -164,6 +168,8 @@ async def run_deploy(state: AgentState) -> None:
     """Deploy phase: complete a user-specified task using the KB."""
     state.status = "running"
     await state.broadcast({"type": "status_change", "status": "running", "mode": "deploy"})
+    from ..observability.langfuse_client import start_session_trace, end_session_trace
+    trace = start_session_trace(state.session_id, mode="deploy", app_name=state.app_name, task=state.task)
 
     # ── Planner: decompose task into sub-steps ────────────────────────────────
     state.sub_steps = await run_planner(state)
@@ -196,12 +202,12 @@ async def run_deploy(state: AgentState) -> None:
             prompt = build_deploy_prompt(state, state.elements, docs_context)
             try:
                 if state.config.reasoning_mode == "fast":
-                    decision = await call_text_llm(state.provider, prompt)
+                    decision = await call_text_llm(state.provider, prompt, trace=trace)
                     if decision.get("action") == "escalate":
                         state.escalation_count += 1
-                        decision = await call_vision_llm(state.provider, annotated_b64, prompt)
+                        decision = await call_vision_llm(state.provider, annotated_b64, prompt, trace=trace)
                 else:
-                    decision = await call_vision_llm(state.provider, annotated_b64, prompt)
+                    decision = await call_vision_llm(state.provider, annotated_b64, prompt, trace=trace)
             except Exception as e:
                 state.errors.append(f"Round {state.round_num} LLM error: {e}")
                 state.round_num += 1
@@ -258,6 +264,7 @@ async def run_deploy(state: AgentState) -> None:
                         state.provider,
                         progress_b64,
                         build_progress_prompt(state.task),
+                        trace=trace,
                     )
                     prog_usage = prog.pop("_usage", {})
                     state.llm_call_count += 1
@@ -288,9 +295,11 @@ async def run_deploy(state: AgentState) -> None:
         state.status = "error"
         state.errors.append(str(e))
         await state.broadcast({"type": "error", "message": str(e)})
+        end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
         return
 
     state.status = "done"
+    end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
     await state.broadcast({
         "type": "status_change",
         "status": "done",

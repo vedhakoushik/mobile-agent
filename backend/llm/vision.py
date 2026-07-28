@@ -6,22 +6,29 @@ from typing import Any
 import httpx
 
 
-async def call_vision_llm(provider: str, screenshot_b64: str, prompt: str) -> dict[str, Any]:
+async def call_vision_llm(provider: str, screenshot_b64: str, prompt: str, trace=None) -> dict[str, Any]:
     """Single annotated screenshot + prompt → parsed JSON dict."""
+    import time
+    start = time.monotonic()
     if provider == "gemini":
-        return await _gemini_vision(screenshot_b64, prompt)
+        result = await _gemini_vision(screenshot_b64, prompt)
     elif provider == "openai":
-        return await _openai_vision(screenshot_b64, prompt)
+        result = await _openai_vision(screenshot_b64, prompt)
     elif provider == "anthropic":
-        return await _anthropic_vision(screenshot_b64, prompt)
+        result = await _anthropic_vision(screenshot_b64, prompt)
     elif provider == "ollama":
-        return await _ollama_vision(screenshot_b64, prompt)
+        result = await _ollama_vision(screenshot_b64, prompt)
     elif provider == "cerebras":
-        return await _cerebras_vision(screenshot_b64, prompt)
+        result = await _cerebras_vision(screenshot_b64, prompt)
     elif provider == "glm":
-        return await _glm_vision(screenshot_b64, prompt)
+        result = await _glm_vision(screenshot_b64, prompt)
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
+    latency = time.monotonic() - start
+    if trace is not None:
+        from ..observability.langfuse_client import log_generation
+        log_generation(trace, provider, "vision", prompt, result, result.get("_usage", {}), latency, had_image=True)
+    return result
 
 
 async def call_dual_vision_llm(
@@ -29,38 +36,65 @@ async def call_dual_vision_llm(
     before_b64: str,
     after_b64: str,
     prompt: str,
+    trace=None,
 ) -> dict[str, Any]:
     """Two screenshots (before + after) + prompt → parsed JSON dict."""
     if provider == "gemini":
-        return await _gemini_dual_vision(before_b64, after_b64, prompt)
+        import time
+        start = time.monotonic()
+        result = await _gemini_dual_vision(before_b64, after_b64, prompt)
+        latency = time.monotonic() - start
     elif provider == "openai":
-        return await _openai_dual_vision(before_b64, after_b64, prompt)
+        import time
+        start = time.monotonic()
+        result = await _openai_dual_vision(before_b64, after_b64, prompt)
+        latency = time.monotonic() - start
     elif provider == "ollama":
-        return await _ollama_dual_vision(before_b64, after_b64, prompt)
+        import time
+        start = time.monotonic()
+        result = await _ollama_dual_vision(before_b64, after_b64, prompt)
+        latency = time.monotonic() - start
     elif provider == "cerebras":
-        return await _cerebras_dual_vision(before_b64, after_b64, prompt)
+        import time
+        start = time.monotonic()
+        result = await _cerebras_dual_vision(before_b64, after_b64, prompt)
+        latency = time.monotonic() - start
     elif provider == "glm":
-        return await _glm_dual_vision(before_b64, after_b64, prompt)
+        import time
+        start = time.monotonic()
+        result = await _glm_dual_vision(before_b64, after_b64, prompt)
+        latency = time.monotonic() - start
     else:
-        return await call_vision_llm(provider, after_b64, prompt)
+        return await call_vision_llm(provider, after_b64, prompt, trace=trace)
+    if trace is not None:
+        from ..observability.langfuse_client import log_generation
+        log_generation(trace, provider, "dual_vision", prompt, result, result.get("_usage", {}), latency, had_image=True)
+    return result
 
 
-async def call_text_llm(provider: str, prompt: str) -> dict[str, Any]:
+async def call_text_llm(provider: str, prompt: str, trace=None) -> dict[str, Any]:
     """Text-only LLM call → parsed JSON dict."""
+    import time
+    start = time.monotonic()
     if provider == "gemini":
-        return await _gemini_text(prompt)
+        result = await _gemini_text(prompt)
     elif provider == "openai":
-        return await _openai_text(prompt)
+        result = await _openai_text(prompt)
     elif provider == "anthropic":
-        return await _anthropic_text(prompt)
+        result = await _anthropic_text(prompt)
     elif provider == "ollama":
-        return await _ollama_text(prompt)
+        result = await _ollama_text(prompt)
     elif provider == "cerebras":
-        return await _cerebras_text(prompt)
+        result = await _cerebras_text(prompt)
     elif provider == "glm":
-        return await _glm_text(prompt)
+        result = await _glm_text(prompt)
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
+    latency = time.monotonic() - start
+    if trace is not None:
+        from ..observability.langfuse_client import log_generation
+        log_generation(trace, provider, "text", prompt, result, result.get("_usage", {}), latency, had_image=False)
+    return result
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
