@@ -28,6 +28,13 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Connected to {len(connected)} device(s): {connected}")
     app.state.devices = registry
 
+    from ..persistence import mark_stale_sessions_interrupted
+    try:
+        interrupted_count = await mark_stale_sessions_interrupted()
+        print(f"[startup] Marked {interrupted_count} stale (mid-flight) session(s) as interrupted")
+    except Exception as e:
+        print(f"[startup] WARNING: failed to mark stale sessions interrupted: {e}")
+
     if not os.environ.get("API_KEY"):
         print(
             "[startup] SECURITY WARNING: API_KEY is not set — every endpoint is "

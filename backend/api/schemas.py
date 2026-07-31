@@ -105,6 +105,13 @@ class AgentStatusResponse(BaseModel):
     escalation_count: int = 0
 
 
+class SessionHistoryEvent(BaseModel):
+    round_num: int
+    action: dict
+    element_sig: Optional[str] = None
+    created_at: str
+
+
 # ── Knowledge Base ────────────────────────────────────────────────────────────
 
 class KBDocOut(BaseModel):

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 
 from ..perception import parse_interactive_elements, annotate_screenshot
 from ..llm import call_vision_llm, call_text_llm
@@ -10,12 +11,22 @@ from .planner import run_planner
 from .executor import execute_action
 from .reflector import run_reflector
 from ..llm.pricing import estimate_cost_usd
+from ..persistence import create_session, update_session, append_event
+
+logger = logging.getLogger(__name__)
 
 
 async def run_explore(state: AgentState) -> None:
     """Explore phase: systematically interact with all UI elements and build KB."""
     state.status = "running"
     await state.broadcast({"type": "status_change", "status": "running", "mode": "explore"})
+    try:
+        await create_session(
+            state.session_id, state.app_name, state.task, state.mode, state.provider,
+            state.config.reasoning_mode, state.device.serial if state.device else None,
+        )
+    except Exception as e:
+        logger.warning("persistence create_session failed: %s", e)
     from ..observability.langfuse_client import start_session_trace, end_session_trace
     trace = start_session_trace(state.session_id, mode="explore", app_name=state.app_name, task=state.task)
 
@@ -138,6 +149,12 @@ async def run_explore(state: AgentState) -> None:
                 "element_sig": elem_sig,
             })
 
+            try:
+                await append_event(state.session_id, state.round_num, decision, elem_sig)
+                await update_session(state.session_id, **_session_fields(state, "running"))
+            except Exception as e:
+                logger.warning("persistence append_event/update_session failed: %s", e)
+
             # Stash this round's screen/action for pairing at the TOP of next round
             # (that's when the resulting screen becomes known and the transition
             # this action caused can actually be recorded).
@@ -151,11 +168,19 @@ async def run_explore(state: AgentState) -> None:
         state.status = "error"
         state.errors.append(str(e))
         await state.broadcast({"type": "error", "message": str(e)})
+        try:
+            await update_session(state.session_id, **_session_fields(state, "error"))
+        except Exception as e2:
+            logger.warning("persistence update_session failed: %s", e2)
         end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
         return
 
     state.status = "done"
     end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
+    try:
+        await update_session(state.session_id, **_session_fields(state, "done"))
+    except Exception as e2:
+        logger.warning("persistence update_session failed: %s", e2)
     await state.broadcast({
         "type": "status_change",
         "status": "done",
@@ -168,6 +193,13 @@ async def run_deploy(state: AgentState) -> None:
     """Deploy phase: complete a user-specified task using the KB."""
     state.status = "running"
     await state.broadcast({"type": "status_change", "status": "running", "mode": "deploy"})
+    try:
+        await create_session(
+            state.session_id, state.app_name, state.task, state.mode, state.provider,
+            state.config.reasoning_mode, state.device.serial if state.device else None,
+        )
+    except Exception as e:
+        logger.warning("persistence create_session failed: %s", e)
     from ..observability.langfuse_client import start_session_trace, end_session_trace
     trace = start_session_trace(state.session_id, mode="deploy", app_name=state.app_name, task=state.task)
 
@@ -284,22 +316,37 @@ async def run_deploy(state: AgentState) -> None:
                 except Exception:
                     pass
 
+            elem_sig = _get_elem_sig(state.elements, decision.get("element_id"))
             state.action_history.append({
                 "round": state.round_num,
                 "action": decision,
-                "element_sig": _get_elem_sig(state.elements, decision.get("element_id")),
+                "element_sig": elem_sig,
             })
+
+            try:
+                await append_event(state.session_id, state.round_num, decision, elem_sig)
+                await update_session(state.session_id, **_session_fields(state, "running"))
+            except Exception as e:
+                logger.warning("persistence append_event/update_session failed: %s", e)
             state.round_num += 1
 
     except Exception as e:
         state.status = "error"
         state.errors.append(str(e))
         await state.broadcast({"type": "error", "message": str(e)})
+        try:
+            await update_session(state.session_id, **_session_fields(state, "error"))
+        except Exception as e2:
+            logger.warning("persistence update_session failed: %s", e2)
         end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
         return
 
     state.status = "done"
     end_session_trace(trace, status=state.status, task_complete=state.task_complete, round_num=state.round_num)
+    try:
+        await update_session(state.session_id, **_session_fields(state, "done"))
+    except Exception as e2:
+        logger.warning("persistence update_session failed: %s", e2)
     await state.broadcast({
         "type": "status_change",
         "status": "done",
@@ -309,6 +356,19 @@ async def run_deploy(state: AgentState) -> None:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _session_fields(state: AgentState, status: str) -> dict:
+    return {
+        "status": status,
+        "round_num": state.round_num,
+        "task_complete": state.task_complete,
+        "failure_reason": state.failure_reason,
+        "tokens_used": state.tokens_used,
+        "estimated_cost_usd": state.estimated_cost_usd,
+        "llm_call_count": state.llm_call_count,
+        "escalation_count": state.escalation_count,
+    }
+
 
 def _get_elem_sig(elements: list[dict], elem_id: int | None) -> str:
     if elem_id is None:

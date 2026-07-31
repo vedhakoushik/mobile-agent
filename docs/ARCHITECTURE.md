@@ -237,6 +237,29 @@ dict-form elements into `KnowledgeBase.retrieve_context()`, which needs attribut
 `SimpleNamespace` shim rather than touching `store.py`), not a replacement for the proven
 `run_deploy`. Wiring it in as a selectable execution mode is future work.
 
+## Session persistence + activity log
+
+`backend/persistence/db.py` — SQLite (`backend/sessions.db`, gitignored), two tables: `sessions`
+(one row per run — config, live status, final usage totals) and `session_events` (one row per
+round — the same data that goes into in-memory `action_history`, mirrored to disk). Every write
+wraps stdlib `sqlite3` (sync) in `asyncio.to_thread`, matching how `device/controller.py` wraps
+blocking ADB calls, and every call site in `agent/loop.py` is fail-soft (try/except, log, never
+raise) — the same philosophy as the Neo4j graph writes and Langfuse tracing. Persistence can never
+be the reason an Explore/Deploy run stops working.
+
+What this does and doesn't do: a session's *data* survives a backend restart — `GET
+/agent/{session_id}` falls back to the DB when the in-memory `_sessions` dict (which resets on
+every restart) doesn't have it. What it does **not** do is resume execution — nothing re-attaches
+to a device or continues a round loop after a restart. A session that was `"running"` when the
+process died gets flipped to `"interrupted"` at the next startup
+(`mark_stale_sessions_interrupted()`, called from `api/main.py`'s `lifespan()`) rather than being
+left permanently stuck claiming to still be running.
+
+`GET /agent/{session_id}/history` returns the full round-by-round log for any session, live or
+historical. `GET /agent/sessions` lists every session ever run (paginated) — registered *before*
+`GET /agent/{session_id}` in the router so the literal path `/sessions` doesn't get swallowed by
+the `{session_id}` wildcard, same fix used for `/device/list` vs `/agent/{session_id}` earlier.
+
 ## Langfuse observability (optional)
 
 `backend/observability/langfuse_client.py` — fully optional LLM tracing. Disabled entirely (zero

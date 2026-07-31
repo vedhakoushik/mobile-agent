@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Optional
 
@@ -7,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ..schemas import (
     ExploreRequest, DeployRequest,
     FanoutDeployRequest, FanoutDeployResponse, FanoutSessionResult,
-    SessionResponse, AgentStatusResponse,
+    SessionResponse, AgentStatusResponse, SessionHistoryEvent,
 )
 from ..ws.manager import ws_manager
 from ...agent.loop import run_explore, run_deploy
@@ -16,6 +17,7 @@ from ...knowledge_base.store import KnowledgeBase
 from ...app_cards.loader import AppCardProvider
 from ...security.credentials import CredentialManager
 from ...graph.neo4j_client import NavigationGraph
+from ...persistence import get_session, get_session_events, list_sessions
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -172,11 +174,30 @@ async def start_deploy_fanout(body: FanoutDeployRequest, request: Request):
     return FanoutDeployResponse(results=results)
 
 
+@router.get("/sessions")
+async def list_sessions_endpoint(limit: int = 50, offset: int = 0):
+    return await list_sessions(limit=limit, offset=offset)
+
+
 @router.get("/{session_id}", response_model=AgentStatusResponse)
 async def get_status(session_id: str):
     state = _sessions.get(session_id)
     if state is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+        db_row = await get_session(session_id)
+        if db_row is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return AgentStatusResponse(
+            session_id=db_row["session_id"],
+            status=db_row["status"],
+            round_num=db_row["round_num"],
+            task_complete=bool(db_row["task_complete"]),
+            failure_reason=db_row["failure_reason"],
+            errors=[],
+            tokens_used=db_row["tokens_used"],
+            estimated_cost_usd=db_row["estimated_cost_usd"],
+            llm_call_count=db_row["llm_call_count"],
+            escalation_count=db_row["escalation_count"],
+        )
     return AgentStatusResponse(
         session_id=session_id,
         status=state.status,
@@ -189,6 +210,20 @@ async def get_status(session_id: str):
         llm_call_count=state.llm_call_count,
         escalation_count=state.escalation_count,
     )
+
+
+@router.get("/{session_id}/history", response_model=list[SessionHistoryEvent])
+async def get_session_history(session_id: str):
+    events = await get_session_events(session_id)
+    return [
+        SessionHistoryEvent(
+            round_num=e["round_num"],
+            action=json.loads(e["action_json"]),
+            element_sig=e["element_sig"],
+            created_at=e["created_at"],
+        )
+        for e in events
+    ]
 
 
 @router.delete("/{session_id}", response_model=AgentStatusResponse)
