@@ -109,7 +109,7 @@ def _update_session(session_id: str, fields: dict) -> None:
     conn = _connect()
     try:
         assignments = ", ".join(f"{k} = ?" for k in sets)
-        cur = conn.execute(
+        conn.execute(
             f"UPDATE sessions SET {assignments} WHERE session_id = ?",
             (*sets.values(), session_id),
         )
@@ -210,7 +210,9 @@ async def update_session(session_id: str, **fields) -> None:
     await asyncio.to_thread(_update_session, session_id, fields)
 
 
-async def append_event(session_id: str, round_num: int, action_dict: dict, element_sig: Optional[str]) -> None:
+async def append_event(
+    session_id: str, round_num: int, action_dict: dict, element_sig: Optional[str]
+) -> None:
     await asyncio.to_thread(_append_event, session_id, round_num, action_dict, element_sig)
 
 
