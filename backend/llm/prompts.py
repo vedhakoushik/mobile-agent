@@ -22,7 +22,7 @@ _EXPLORE_SCHEMA = """{
 _DEPLOY_SCHEMA = """{
   "thought":     "Your reasoning about advancing the task",
   "observation": "Current screen state relevant to the task",
-  "action":      "tap | text | swipe | long_press | grid | type_secret | escalate | finish",
+  "action":      "tap | text | swipe | long_press | grid | type_secret | back | escalate | finish",
   "element_id":  <integer ID or null>,
   "text_input":  "<string to type or null>",
   "direction":   "up | down | left | right | null",
@@ -161,6 +161,10 @@ Rules:
 - Use knowledge base docs to understand element behaviors
 - Use action "finish" when the FULL task is visibly complete (result shown on screen)
 - If a required UI element is not visible, swipe to find it
+- If you swiped and landed somewhere unexpected (e.g. the notification shade or quick \
+settings instead of app content — recognizable by system elements like Wi-Fi/Bluetooth tiles, \
+brightness sliders, or a list of notifications instead of the target app's UI), use action \
+"back" to return, rather than continuing to swipe from there
 - NEVER tap the same element twice in a row unless the screen changed
 - When the task specifies exact content to search/enter (a query, name, topic), TYPE it yourself \
 using the "text" action — do NOT tap a pre-existing recent-search suggestion, autocomplete entry, \

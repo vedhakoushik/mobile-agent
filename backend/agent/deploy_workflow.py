@@ -27,6 +27,7 @@ from ..llm.pricing import estimate_cost_usd
 from .state import AgentState
 from .planner import run_planner
 from .executor import execute_action
+from .loop import _launch_target_app
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,8 @@ class DeployWorkflow(Workflow):
 
         state.status = "running"
         await state.broadcast({"type": "status_change", "status": "running", "mode": "deploy"})
+
+        await _launch_target_app(state)
 
         state.sub_steps = await run_planner(state)
         await state.broadcast({"type": "plan_ready", "steps": state.sub_steps})

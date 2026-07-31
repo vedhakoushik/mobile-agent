@@ -7,6 +7,7 @@ from ..llm import call_vision_llm, call_text_llm
 from ..llm.prompts import build_explore_prompt, build_deploy_prompt, build_progress_prompt
 from .state import AgentState
 from ..graph.neo4j_client import screen_signature
+from ..device.app_registry import resolve_package
 from .planner import run_planner
 from .executor import execute_action
 from .reflector import run_reflector
@@ -14,6 +15,29 @@ from ..llm.pricing import estimate_cost_usd
 from ..persistence import create_session, update_session, append_event
 
 logger = logging.getLogger(__name__)
+
+
+async def _launch_target_app(state: AgentState) -> None:
+    """Bring the target app to the foreground before the round loop starts.
+
+    Without this, the agent reasons about whatever screen the device already
+    happened to be showing (e.g. left over from a previous session) instead
+    of the app it was actually asked to operate — it has no action available
+    to recover from that (no "launch app" action, "back" isn't in the
+    schema), so it gets stuck swiping trying to find UI that isn't there.
+    Unknown app_name values fall back to the pre-existing behavior
+    (assume the app is already open) rather than failing the run.
+    """
+    package = resolve_package(state.app_name)
+    if package is None:
+        logger.warning(
+            "No known package for app_name=%r — assuming it's already open", state.app_name
+        )
+        return
+    try:
+        await state.device.launch_app(package)
+    except Exception as e:
+        logger.warning("launch_app failed for %s (%s): %s", state.app_name, package, e)
 
 
 async def run_explore(state: AgentState) -> None:
@@ -29,6 +53,8 @@ async def run_explore(state: AgentState) -> None:
         logger.warning("persistence create_session failed: %s", e)
     from ..observability.langfuse_client import start_session_trace, end_session_trace
     trace = start_session_trace(state.session_id, mode="explore", app_name=state.app_name, task=state.task)
+
+    await _launch_target_app(state)
 
     try:
         while state.round_num < state.max_rounds and not state.task_complete:
@@ -202,6 +228,8 @@ async def run_deploy(state: AgentState) -> None:
         logger.warning("persistence create_session failed: %s", e)
     from ..observability.langfuse_client import start_session_trace, end_session_trace
     trace = start_session_trace(state.session_id, mode="deploy", app_name=state.app_name, task=state.task)
+
+    await _launch_target_app(state)
 
     # ── Planner: decompose task into sub-steps ────────────────────────────────
     state.sub_steps = await run_planner(state)
