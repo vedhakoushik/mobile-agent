@@ -137,3 +137,51 @@ class KBListResponse(BaseModel):
 
 class KBDeleteResponse(BaseModel):
     deleted: int
+
+
+# ── Demonstrations ────────────────────────────────────────────────────────────
+
+class StartRecordingRequest(BaseModel):
+    task_description: str
+    device_serial: Optional[str] = None
+
+
+class RecordStepRequest(BaseModel):
+    recording_id: str
+    action_type: str
+    params: dict = {}
+    description: Optional[str] = None
+
+
+class StopRecordingRequest(BaseModel):
+    recording_id: str
+
+
+class ReplayRequest(BaseModel):
+    device_serial: Optional[str] = None
+    on_drift: Literal["stop", "skip"] = "stop"
+
+
+class StartRecordingResponse(BaseModel):
+    recording_id: str
+
+
+class RecordStepResponse(BaseModel):
+    ok: bool
+    steps_recorded: int
+
+
+class StopRecordingResponse(BaseModel):
+    ok: bool
+    path: str
+
+
+class DemoListItem(BaseModel):
+    recording_id: str
+    task_description: str
+    step_count: int
+    created_at: str
+
+
+class DeleteDemoResponse(BaseModel):
+    ok: bool

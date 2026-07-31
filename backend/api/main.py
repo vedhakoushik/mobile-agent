@@ -10,7 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 load_dotenv()
 
 # noqa: E402 — must run after load_dotenv(); these modules read env vars at import time
-from .routers import device_router, agent_router, kb_router  # noqa: E402
+from .routers import device_router, agent_router, kb_router, demonstrations_router  # noqa: E402
 from .ws.manager import ws_manager  # noqa: E402
 from ..device.registry import DeviceRegistry  # noqa: E402
 from ..security.auth import ApiKeyAuthMiddleware, verify_ws_token  # noqa: E402
@@ -75,6 +75,7 @@ app.add_middleware(
 app.include_router(device_router, prefix="/api/v1")
 app.include_router(agent_router,  prefix="/api/v1")
 app.include_router(kb_router,     prefix="/api/v1")
+app.include_router(demonstrations_router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")
