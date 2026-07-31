@@ -22,6 +22,8 @@ kb_data/
 backend/chroma_data/
 *.db
 *.sqlite3
+backend/eval/reports/
+backend/demonstrations_data/
 
 # Assets (font binary, fetched separately)
 backend/assets/*.ttf
