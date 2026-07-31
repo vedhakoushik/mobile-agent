@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hey Agent</string>
+    <string name="accessibility_service_description">Lets Hey Agent read the screen and perform taps/text entry in other apps to carry out voice commands, the same way a screen reader or voice assistant does.</string>
+    <string name="enable_accessibility_prompt">Hey Agent needs the Accessibility Service enabled to control other apps. Tap below to open settings.</string>
+    <string name="open_accessibility_settings">Open Accessibility Settings</string>
+</resources>
