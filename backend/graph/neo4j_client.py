@@ -60,6 +60,24 @@ class NavigationGraph:
         except Exception as e:
             logger.warning("NavigationGraph.record_transition failed: %s", e)
 
+    def get_outgoing_transitions(self, app_name: str, screen_sig: str, limit: int = 10) -> list[dict]:
+        try:
+            with self._driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (a:Screen {app_name: $app_name, sig: $sig})-[r:LEADS_TO]->(b:Screen)
+                    RETURN r.element_sig AS element_sig, r.element_text AS element_text
+                    LIMIT $limit
+                    """,
+                    app_name=app_name,
+                    sig=screen_sig,
+                    limit=limit,
+                )
+                return [{"element_sig": rec["element_sig"], "element_text": rec["element_text"]} for rec in result]
+        except Exception as e:
+            logger.warning("NavigationGraph.get_outgoing_transitions failed: %s", e)
+            return []
+
     def find_path(self, app_name: str, from_screen_sig: str, to_screen_sig: str, max_hops: int = 6) -> Optional[list[dict]]:
         try:
             with self._driver.session() as session:

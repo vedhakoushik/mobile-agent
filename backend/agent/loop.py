@@ -218,6 +218,33 @@ async def run_deploy(state: AgentState) -> None:
             raw_xml = await state.device.pull_xml()
             elements = parse_interactive_elements(raw_xml)
             state.elements = [e.to_dict() for e in elements]
+
+            # current_screen_sig is the screen at the START of this round, i.e. the
+            # RESULT of the PREVIOUS round's action (or the initial screen if this is
+            # round 0). Pair it with state.last_screen_sig / state.last_elem_sig /
+            # state.last_action_thought (all captured at the END of the previous
+            # round) to record the transition that just became fully knowable.
+            # Do NOT pair it with this round's not-yet-decided action.
+            current_screen_sig = screen_signature(state.elements)
+            if state.nav_graph is not None and state.last_screen_sig is not None:
+                try:
+                    state.nav_graph.record_transition(
+                        app_name=state.app_name,
+                        from_screen_sig=state.last_screen_sig,
+                        element_sig=state.last_elem_sig or "unknown",
+                        element_text=state.last_action_thought,
+                        to_screen_sig=current_screen_sig,
+                    )
+                except Exception:
+                    pass  # never let graph recording break the deploy run
+
+            known_transitions = []
+            if state.nav_graph is not None:
+                try:
+                    known_transitions = state.nav_graph.get_outgoing_transitions(state.app_name, current_screen_sig)
+                except Exception:
+                    pass
+
             annotated_b64 = annotate_screenshot(raw_png, elements)
             state.screenshot_b64 = annotated_b64
 
@@ -231,7 +258,7 @@ async def run_deploy(state: AgentState) -> None:
             docs_context = await state.kb.retrieve_context(elements)
 
             # ── 4. Deploy LLM decision ────────────────────────────────────────
-            prompt = build_deploy_prompt(state, state.elements, docs_context)
+            prompt = build_deploy_prompt(state, state.elements, docs_context, known_transitions)
             try:
                 if state.config.reasoning_mode == "fast":
                     decision = await call_text_llm(state.provider, prompt, trace=trace)
@@ -322,6 +349,9 @@ async def run_deploy(state: AgentState) -> None:
                 "action": decision,
                 "element_sig": elem_sig,
             })
+            state.last_screen_sig = current_screen_sig
+            state.last_elem_sig = elem_sig
+            state.last_action_thought = decision.get("thought", "")[:100]
 
             try:
                 await append_event(state.session_id, state.round_num, decision, elem_sig)

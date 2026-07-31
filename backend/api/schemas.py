@@ -59,6 +59,7 @@ class DeployRequest(BaseModel):
     device_serial: Optional[str] = None
     provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
     reasoning_mode: Literal["reasoning", "fast"] = "reasoning"
+    engine: Literal["loop", "workflow"] = "loop"
     max_tokens: Optional[int] = None
     max_cost_usd: Optional[float] = None
     max_llm_calls: Optional[int] = None
@@ -71,6 +72,7 @@ class FanoutDeployRequest(BaseModel):
     max_rounds: int = 30
     provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
     reasoning_mode: Literal["reasoning", "fast"] = "reasoning"
+    engine: Literal["loop", "workflow"] = "loop"
     max_tokens: Optional[int] = None
     max_cost_usd: Optional[float] = None
     max_llm_calls: Optional[int] = None

@@ -112,8 +112,13 @@ async def start_deploy(body: DeployRequest, request: Request):
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
+    if body.engine == "workflow":
+        from ...agent.deploy_workflow import DeployWorkflow
+        coro = DeployWorkflow(timeout=300).run(state=state)
+    else:
+        coro = run_deploy(state)
     asyncio.create_task(
-        _run_and_release(run_deploy(state), request.app.state.devices, state.device.serial),
+        _run_and_release(coro, request.app.state.devices, state.device.serial),
         name=f"deploy-{session_id}",
     )
     return SessionResponse(session_id=session_id, message="Deployment started")
@@ -161,8 +166,13 @@ async def start_deploy_fanout(body: FanoutDeployRequest, request: Request):
             ws_broadcast=ws_manager.broadcast,
         )
         _sessions[session_id] = state
+        if body.engine == "workflow":
+            from ...agent.deploy_workflow import DeployWorkflow
+            coro = DeployWorkflow(timeout=300).run(state=state)
+        else:
+            coro = run_deploy(state)
         asyncio.create_task(
-            _run_and_release(run_deploy(state), registry, acquired_serial),
+            _run_and_release(coro, registry, acquired_serial),
             name=f"deploy-fanout-{session_id}",
         )
         results.append(FanoutSessionResult(

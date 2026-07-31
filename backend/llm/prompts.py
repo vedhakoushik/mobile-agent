@@ -80,6 +80,15 @@ def _app_card_txt(state: "AgentState") -> str:
     return card if card else "(no guide available for this app — explore to learn it)"
 
 
+def _known_transitions_txt(known_transitions: list[dict]) -> str:
+    if not known_transitions:
+        return "(no known transitions from this screen yet)"
+    return "\n".join(
+        f"- tapping element matching '{t.get('element_sig')}' previously led to: {t.get('element_text')}"
+        for t in known_transitions
+    )
+
+
 def build_explore_prompt(state: "AgentState", elements: list, docs_context: str) -> str:
     return (
         f"{EXPLORE_SYSTEM}\n\n"
@@ -151,7 +160,7 @@ the login — use "finish" with failure_reason-style thought explaining the miss
 - Respond ONLY with valid JSON — no prose outside the JSON"""
 
 
-def build_deploy_prompt(state: "AgentState", elements: list, docs_context: str) -> str:
+def build_deploy_prompt(state: "AgentState", elements: list, docs_context: str, known_transitions: list = None) -> str:
     # compress history: first entry + last 5
     history = state.action_history
     if len(history) > 6:
@@ -190,6 +199,7 @@ def build_deploy_prompt(state: "AgentState", elements: list, docs_context: str) 
         f"TASK: {state.task}\n"
         f"App: {state.app_name} | Round: {state.round_num} / {state.max_rounds}\n\n"
         f"APP GUIDE:\n{_app_card_txt(state)}\n\n"
+        f"KNOWN NAVIGATION FROM THIS SCREEN (from past Explore/Deploy runs):\n{_known_transitions_txt(known_transitions or [])}\n\n"
         f"PLAN:\n{plan_txt}\n\n"
         f"CURRENT SUB-STEP: {current_step}\n\n"
         f"INTERACTIVE ELEMENTS:\n{_elements_txt(elements)}\n\n"
