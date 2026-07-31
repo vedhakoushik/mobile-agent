@@ -34,6 +34,19 @@ export interface SessionResponse {
   message: string
 }
 
+export interface ChatRequest {
+  message: string
+  provider?: string
+  device_serial?: string
+}
+
+export interface ChatResponse {
+  session_id: string
+  app_name: string
+  task: string
+  message: string
+}
+
 export interface AgentStatus {
   session_id: string
   status: string
@@ -225,6 +238,7 @@ export const agentApi = {
     api.post<SessionResponse>('/agent/deploy', opts).then((r) => r.data),
   deployFanout: (opts: FanoutOptions) =>
     api.post<{ results: FanoutResult[] }>('/agent/deploy/fanout', opts).then((r) => r.data),
+  chat: (body: ChatRequest) => api.post<ChatResponse>('/agent/chat', body).then((r) => r.data),
   status: (session_id: string) =>
     api.get<AgentStatus>(`/agent/${session_id}`).then((r) => r.data),
   stop: (session_id: string) =>
