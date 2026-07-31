@@ -1,5 +1,8 @@
+import asyncio
+import os
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from ...device import wireless
@@ -90,3 +93,72 @@ async def connect_device(body: ConnectDeviceRequest, request: Request):
         raise HTTPException(status_code=502, detail=output)
     await request.app.state.devices.discover_and_connect()
     return request.app.state.devices.list_status()
+
+
+async def _check_chromadb() -> dict:
+    try:
+        import chromadb
+        from chromadb.config import Settings
+
+        from ...knowledge_base.store import LOCAL_KB_PATH
+
+        host = os.getenv("CHROMA_HOST")
+        if host:
+            client = chromadb.HttpClient(host=host, port=int(os.getenv("CHROMA_PORT", "8001")))
+            await asyncio.to_thread(client.heartbeat)
+            return {"reachable": True}
+        client = chromadb.PersistentClient(
+            path=str(LOCAL_KB_PATH), settings=Settings(anonymized_telemetry=False)
+        )
+        await asyncio.to_thread(client.heartbeat)
+        return {"reachable": True, "mode": "local"}
+    except Exception:
+        return {"reachable": False}
+
+
+async def _check_neo4j() -> dict:
+    try:
+        from ...graph.neo4j_client import NavigationGraph
+
+        graph = NavigationGraph()
+        try:
+            await asyncio.to_thread(graph._driver.verify_connectivity)
+            return {"reachable": True}
+        finally:
+            graph.close()
+    except Exception:
+        return {"reachable": False}
+
+
+async def _check_langfuse() -> dict:
+    from ...observability import langfuse_client
+
+    return {"enabled": langfuse_client._enabled, "configured": langfuse_client._enabled}
+
+
+async def _check_ollama() -> dict:
+    try:
+        url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434") + "/api/tags"
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url)
+            return {"reachable": resp.status_code == 200}
+    except Exception:
+        return {"reachable": False}
+
+
+@router.get("/health/detailed")
+async def health_detailed(request: Request):
+    registry = request.app.state.devices
+    statuses = registry.list_status()
+
+    chromadb_status, neo4j_status, langfuse_status, ollama_status = await asyncio.gather(
+        _check_chromadb(), _check_neo4j(), _check_langfuse(), _check_ollama()
+    )
+
+    return {
+        "devices": {"count": len(statuses), "serials": [s["serial"] for s in statuses]},
+        "chromadb": chromadb_status,
+        "neo4j": neo4j_status,
+        "langfuse": langfuse_status,
+        "ollama": ollama_status,
+    }
