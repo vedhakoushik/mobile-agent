@@ -1,5 +1,7 @@
 # Mobile Agent
 
+![CI](https://github.com/vedhakoushik/mobile-agent/actions/workflows/ci.yml/badge.svg)
+
 An autonomous agent that operates Android apps the way a person would — by looking at the
 screen, deciding what to tap, and learning from what happens. It has two modes:
 

@@ -9,10 +9,11 @@ from starlette.websockets import WebSocketDisconnect
 
 load_dotenv()
 
-from .routers import device_router, agent_router, kb_router
-from .ws.manager import ws_manager
-from ..device.registry import DeviceRegistry
-from ..security.auth import ApiKeyAuthMiddleware, verify_ws_token
+# noqa: E402 — must run after load_dotenv(); these modules read env vars at import time
+from .routers import device_router, agent_router, kb_router  # noqa: E402
+from .ws.manager import ws_manager  # noqa: E402
+from ..device.registry import DeviceRegistry  # noqa: E402
+from ..security.auth import ApiKeyAuthMiddleware, verify_ws_token  # noqa: E402
 
 
 @asynccontextmanager

@@ -27,6 +27,9 @@ export function KnowledgeBasePage() {
 
   useEffect(() => {
     load(appName)
+    // Intentionally load once on mount: depending on `appName` would refetch on
+    // every keystroke; reloads are user-triggered via the Load button instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleClear = async () => {

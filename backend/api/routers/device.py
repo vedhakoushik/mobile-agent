@@ -75,7 +75,12 @@ async def pair_device(body: PairDeviceRequest, request: Request):
     if not ok:
         raise HTTPException(status_code=502, detail=output)
     await request.app.state.devices.discover_and_connect()
-    return {"paired": True, "message": output + " — now call /device/connect with the OTHER ip:port shown on the phone's Wireless debugging screen (the connect port differs from the pairing port)."}
+    message = (
+        output
+        + " — now call /device/connect with the OTHER ip:port shown on the phone's "
+        "Wireless debugging screen (the connect port differs from the pairing port)."
+    )
+    return {"paired": True, "message": message}
 
 
 @router.post("/connect")

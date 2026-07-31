@@ -15,5 +15,7 @@ export function useDevice(pollMs = 5000) {
     fetch()
     const interval = setInterval(fetch, pollMs)
     return () => clearInterval(interval)
-  }, [pollMs])
+    // setDeviceStatus is a stable zustand setter, so the interval is only
+    // recreated when pollMs changes.
+  }, [pollMs, setDeviceStatus])
 }

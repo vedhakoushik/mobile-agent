@@ -1,6 +1,5 @@
 import base64
 import io
-import pytest
 from PIL import Image
 
 from perception.annotator import annotate_screenshot

@@ -1,7 +1,6 @@
 import base64
 import io
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -65,7 +64,12 @@ def annotate_screenshot(
         bx2 = x1 + lw + BADGE_PADDING * 2
         by2 = y1 + lh + BADGE_PADDING * 2
         draw.rectangle([x1, y1, bx2, by2], fill=(*BOX_COLOR, 255))
-        draw.text((x1 + BADGE_PADDING, y1 + BADGE_PADDING), label, fill=(255, 255, 255, 255), font=font)
+        draw.text(
+            (x1 + BADGE_PADDING, y1 + BADGE_PADDING),
+            label,
+            fill=(255, 255, 255, 255),
+            font=font,
+        )
 
     result = Image.alpha_composite(img, overlay).convert("RGB")
     buf = io.BytesIO()

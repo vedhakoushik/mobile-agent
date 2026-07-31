@@ -1,4 +1,3 @@
-import pytest
 from perception.xml_parser import parse_interactive_elements
 
 SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>

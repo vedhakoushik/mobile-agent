@@ -1,0 +1,27 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["."]
+# These directories are out of scope for the initial lint rollout (agent/logic
+# code owned by other workstreams) and are intentionally excluded here rather
+# than force-fixed, per the CI/tooling task boundary. Remove entries as each
+# directory is cleaned up and brought under lint coverage.
+exclude = [
+    "agent",
+    "llm",
+    "device",
+    "graph",
+    "observability",
+    "demonstrations",
+    "app_cards",
+    "security",
+]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

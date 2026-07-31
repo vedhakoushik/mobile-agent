@@ -1,7 +1,7 @@
 import base64
 import io
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from .annotator import _load_font
 

@@ -53,7 +53,9 @@ export function useAgentStream(sessionId: string | null) {
       ws.disconnect()
       wsRef.current = null
     }
-  }, [sessionId])
+    // Store setters are stable across renders (zustand), so this effect still
+    // only re-runs when sessionId changes.
+  }, [sessionId, setScreenshot, setRoundNum, appendLog, appendKbDoc, setPlan, setAgentStatus, setTaskComplete, setFailureReason])
 
   const stop = () => wsRef.current?.send({ type: 'stop' })
   const pause = () => wsRef.current?.send({ type: 'pause' })

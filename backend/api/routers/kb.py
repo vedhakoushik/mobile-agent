@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from ..schemas import KBListResponse, KBDocOut, KBDeleteResponse
 from ...knowledge_base.store import KnowledgeBase

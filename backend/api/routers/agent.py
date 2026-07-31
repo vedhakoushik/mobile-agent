@@ -25,7 +25,7 @@ _sessions: dict[str, AgentState] = {}
 # loaded once at import time — secrets.yaml is read from disk, never re-parsed per request
 _credentials = CredentialManager()
 
-# loaded once at import time — app_cards.json + markdown files are read from disk, never re-parsed per request
+# loaded once at import time — app_cards.json + markdown files are read from disk, never re-parsed
 _app_cards = AppCardProvider()
 
 # constructed once at import time — the neo4j driver itself is lazy (no connection
@@ -41,13 +41,19 @@ async def _run_and_release(coro, registry, serial):
         registry.release(serial)
 
 
-def _make_state(session_id: str, config: RunConfig, request: Request, device_serial: Optional[str] = None) -> AgentState:
+def _make_state(
+    session_id: str, config: RunConfig, request: Request, device_serial: Optional[str] = None
+) -> AgentState:
     registry = request.app.state.devices
     acquired = registry.acquire(device_serial)
     if acquired is None:
         raise HTTPException(
             status_code=503,
-            detail="No idle Android device available" if device_serial is None else f"Device '{device_serial}' not found or busy",
+            detail=(
+                "No idle Android device available"
+                if device_serial is None
+                else f"Device '{device_serial}' not found or busy"
+            ),
         )
     serial, device = acquired
 
@@ -75,11 +81,16 @@ async def start_explore(body: ExploreRequest, request: Request):
         mode="explore",
         provider=body.provider,
         max_rounds=body.max_rounds,
-        max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
+        max_tokens=body.max_tokens,
+        max_cost_usd=body.max_cost_usd,
+        max_llm_calls=body.max_llm_calls,
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(_run_and_release(run_explore(state), request.app.state.devices, state.device.serial), name=f"explore-{session_id}")
+    asyncio.create_task(
+        _run_and_release(run_explore(state), request.app.state.devices, state.device.serial),
+        name=f"explore-{session_id}",
+    )
     return SessionResponse(session_id=session_id, message="Exploration started")
 
 
@@ -93,11 +104,16 @@ async def start_deploy(body: DeployRequest, request: Request):
         provider=body.provider,
         reasoning_mode=body.reasoning_mode,
         max_rounds=body.max_rounds,
-        max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
+        max_tokens=body.max_tokens,
+        max_cost_usd=body.max_cost_usd,
+        max_llm_calls=body.max_llm_calls,
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(_run_and_release(run_deploy(state), request.app.state.devices, state.device.serial), name=f"deploy-{session_id}")
+    asyncio.create_task(
+        _run_and_release(run_deploy(state), request.app.state.devices, state.device.serial),
+        name=f"deploy-{session_id}",
+    )
     return SessionResponse(session_id=session_id, message="Deployment started")
 
 
@@ -126,7 +142,9 @@ async def start_deploy_fanout(body: FanoutDeployRequest, request: Request):
             provider=body.provider,
             reasoning_mode=body.reasoning_mode,
             max_rounds=body.max_rounds,
-            max_tokens=body.max_tokens, max_cost_usd=body.max_cost_usd, max_llm_calls=body.max_llm_calls,
+            max_tokens=body.max_tokens,
+            max_cost_usd=body.max_cost_usd,
+            max_llm_calls=body.max_llm_calls,
         )
         kb = KnowledgeBase(app_name=config.app_name)
         app_card = _app_cards.get(config.app_name)
@@ -166,7 +184,10 @@ async def get_status(session_id: str):
         task_complete=state.task_complete,
         failure_reason=state.failure_reason,
         errors=state.errors[-5:],
-        tokens_used=state.tokens_used, estimated_cost_usd=state.estimated_cost_usd, llm_call_count=state.llm_call_count, escalation_count=state.escalation_count,
+        tokens_used=state.tokens_used,
+        estimated_cost_usd=state.estimated_cost_usd,
+        llm_call_count=state.llm_call_count,
+        escalation_count=state.escalation_count,
     )
 
 
