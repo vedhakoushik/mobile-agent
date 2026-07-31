@@ -122,6 +122,21 @@ def build_reflect_prompt(app_name: str, elem: dict, action_type: str) -> str:
     )
 
 
+# ── Chat intent prompt ─────────────────────────────────────────────────────────
+
+def build_chat_intent_prompt(message: str) -> str:
+    return (
+        f"You turn a free-text user message into a structured mobile automation task.\n\n"
+        f"Message: {message}\n\n"
+        f"Return exactly two fields:\n"
+        f"- app_name: a short lowercase identifier for the Android app the task refers to "
+        f"(e.g. 'youtube', 'gmail', 'linkedin'). Infer it from context if not explicit.\n"
+        f"- task: a clear, complete restatement of what the user wants done, suitable to hand "
+        f"directly to a task-automation agent.\n\n"
+        f'Respond ONLY with valid JSON matching this schema: {{"app_name": "...", "task": "..."}}'
+    )
+
+
 # ── Planner prompt ─────────────────────────────────────────────────────────────
 
 def build_planner_prompt(task: str, app_name: str) -> str:

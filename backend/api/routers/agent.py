@@ -6,13 +6,15 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import (
-    ExploreRequest, DeployRequest,
+    ExploreRequest, DeployRequest, ChatRequest, ChatResponse,
     FanoutDeployRequest, FanoutDeployResponse, FanoutSessionResult,
     SessionResponse, AgentStatusResponse, SessionHistoryEvent,
 )
 from ..ws.manager import ws_manager
 from ...agent.loop import run_explore, run_deploy
 from ...agent.state import AgentState, RunConfig
+from ...llm import call_text_llm
+from ...llm.prompts import build_chat_intent_prompt
 from ...knowledge_base.store import KnowledgeBase
 from ...app_cards.loader import AppCardProvider
 from ...security.credentials import CredentialManager
@@ -20,6 +22,10 @@ from ...graph.neo4j_client import NavigationGraph
 from ...persistence import get_session, get_session_events, list_sessions
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+_INTENT_FAIL_DETAIL = (
+    "Could not understand the task — try rephrasing with a clearer app name and goal."
+)
 
 # active sessions: session_id -> AgentState
 _sessions: dict[str, AgentState] = {}
@@ -122,6 +128,43 @@ async def start_deploy(body: DeployRequest, request: Request):
         name=f"deploy-{session_id}",
     )
     return SessionResponse(session_id=session_id, message="Deployment started")
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def start_chat(body: ChatRequest, request: Request):
+    try:
+        result = await call_text_llm(body.provider, build_chat_intent_prompt(body.message))
+    except Exception:
+        raise HTTPException(status_code=422, detail=_INTENT_FAIL_DETAIL)
+    app_name = result.get("app_name")
+    task = result.get("task")
+    invalid = (
+        not isinstance(app_name, str) or not app_name.strip()
+        or not isinstance(task, str) or not task.strip()
+    )
+    if invalid:
+        raise HTTPException(status_code=422, detail=_INTENT_FAIL_DETAIL)
+
+    session_id = str(uuid.uuid4())
+    config = RunConfig(
+        app_name=app_name.strip(),
+        task=task.strip(),
+        mode="deploy",
+        provider=body.provider,
+        reasoning_mode="fast",
+    )
+    state = _make_state(session_id, config, request, body.device_serial)
+    _sessions[session_id] = state
+    asyncio.create_task(
+        _run_and_release(run_deploy(state), request.app.state.devices, state.device.serial),
+        name=f"deploy-{session_id}",
+    )
+    return ChatResponse(
+        session_id=session_id,
+        app_name=app_name.strip(),
+        task=task.strip(),
+        message="Deployment started",
+    )
 
 
 @router.post("/deploy/fanout", response_model=FanoutDeployResponse)

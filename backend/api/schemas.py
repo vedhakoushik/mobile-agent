@@ -89,6 +89,19 @@ class FanoutDeployResponse(BaseModel):
     results: list[FanoutSessionResult]
 
 
+class ChatRequest(BaseModel):
+    message: str
+    provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
+    device_serial: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    app_name: str
+    task: str
+    message: str
+
+
 class SessionResponse(BaseModel):
     session_id: str
     message: str = ""
