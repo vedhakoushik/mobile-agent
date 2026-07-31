@@ -62,24 +62,115 @@ export interface KBList {
   docs: KBDoc[]
 }
 
+export interface DeviceListEntry {
+  serial: string
+  resolution: [number, number] | null
+  busy: boolean
+}
+
+export interface HealthDetailed {
+  devices: { count: number; serials: string[] }
+  chromadb: { reachable: boolean; mode?: 'local' }
+  neo4j: { reachable: boolean }
+  langfuse: { enabled: boolean; configured: boolean }
+  ollama: { reachable: boolean }
+}
+
+export interface ExploreOptions {
+  app_name: string
+  max_rounds?: number
+  provider?: string
+  device_serial?: string
+  max_tokens?: number
+  max_cost_usd?: number
+  max_llm_calls?: number
+}
+
+export interface DeployOptions extends ExploreOptions {
+  task: string
+  reasoning_mode?: 'reasoning' | 'fast'
+}
+
+export interface FanoutOptions {
+  task: string
+  app_name: string
+  device_serials: string[]
+  provider?: string
+  reasoning_mode?: 'reasoning' | 'fast'
+  max_rounds?: number
+  max_tokens?: number
+  max_cost_usd?: number
+  max_llm_calls?: number
+}
+
+export interface FanoutResult {
+  device_serial: string
+  session_id: string | null
+  started: boolean
+  detail: string | null
+}
+
+export interface SessionSummary {
+  session_id: string
+  app_name: string
+  task: string
+  mode: string
+  provider: string
+  reasoning_mode: string
+  device_serial: string
+  status: string
+  round_num: number
+  task_complete: boolean
+  failure_reason: string | null
+  tokens_used: number
+  estimated_cost_usd: number
+  llm_call_count: number
+  escalation_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HistoryAction {
+  action: string
+  element_id?: number | null
+  thought?: string
+  observation?: string
+  [key: string]: unknown
+}
+
+export interface HistoryEntry {
+  round_num: number
+  action: HistoryAction
+  element_sig: string | null
+  created_at: string
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const deviceApi = {
   status: () => api.get<DeviceStatus>('/device/status').then((r) => r.data),
+  list: () => api.get<DeviceListEntry[]>('/device/list').then((r) => r.data),
+  healthDetailed: () => api.get<HealthDetailed>('/device/health/detailed').then((r) => r.data),
   screenshot: () => api.get<{ screenshot_b64: string }>('/device/screenshot').then((r) => r.data),
   tap: (x: number, y: number) => api.post('/device/tap', { x, y }),
   keyEvent: (code: number) => api.post('/device/keyevent', { code }),
 }
 
 export const agentApi = {
-  explore: (app_name: string, max_rounds: number, provider: string) =>
-    api.post<SessionResponse>('/agent/explore', { app_name, max_rounds, provider }).then((r) => r.data),
-  deploy: (task: string, app_name: string, max_rounds: number, provider: string) =>
-    api.post<SessionResponse>('/agent/deploy', { task, app_name, max_rounds, provider }).then((r) => r.data),
+  explore: (opts: ExploreOptions) =>
+    api.post<SessionResponse>('/agent/explore', opts).then((r) => r.data),
+  deploy: (opts: DeployOptions) =>
+    api.post<SessionResponse>('/agent/deploy', opts).then((r) => r.data),
+  deployFanout: (opts: FanoutOptions) =>
+    api.post<{ results: FanoutResult[] }>('/agent/deploy/fanout', opts).then((r) => r.data),
   status: (session_id: string) =>
     api.get<AgentStatus>(`/agent/${session_id}`).then((r) => r.data),
   stop: (session_id: string) =>
     api.delete<AgentStatus>(`/agent/${session_id}`).then((r) => r.data),
+  listSessions: (limit?: number, offset?: number) =>
+    api.get<SessionSummary[]>('/agent/sessions', { params: { limit, offset } }).then((r) => r.data),
+  getSessionHistory: (session_id: string) =>
+    api.get<HistoryEntry[]>(`/agent/${session_id}/history`).then((r) => r.data),
 }
 
 export const kbApi = {

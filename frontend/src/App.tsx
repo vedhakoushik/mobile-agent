@@ -1,15 +1,17 @@
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { Smartphone, Compass, Rocket, Database } from 'lucide-react'
+import { Smartphone, Compass, Rocket, Database, History } from 'lucide-react'
 import { SetupPage } from './pages/SetupPage'
 import { ExplorePage } from './pages/ExplorePage'
 import { DeployPage } from './pages/DeployPage'
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
+import { HistoryPage } from './pages/HistoryPage'
 
 const NAV_ITEMS = [
   { to: '/setup', label: 'Setup', icon: Smartphone },
   { to: '/explore', label: 'Explore', icon: Compass },
   { to: '/deploy', label: 'Deploy', icon: Rocket },
+  { to: '/history', label: 'History', icon: History },
   { to: '/kb', label: 'Knowledge Base', icon: Database },
 ]
 
@@ -50,6 +52,8 @@ export default function App() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/explore" element={<ExplorePage />} />
         <Route path="/deploy" element={<DeployPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/history/:sessionId" element={<HistoryPage />} />
         <Route path="/kb" element={<KnowledgeBasePage />} />
         <Route path="*" element={<Navigate to="/setup" replace />} />
       </Routes>

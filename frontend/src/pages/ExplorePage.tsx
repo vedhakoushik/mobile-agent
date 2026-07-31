@@ -6,6 +6,7 @@ import { ActionLog } from '../components/ActionLog'
 import { RoundProgress } from '../components/RoundProgress'
 import { TaskInput } from '../components/TaskInput'
 import { StatusChip } from '../components/StatusChip'
+import { DevicePicker } from '../components/DevicePicker'
 import { useAgentStore } from '../store/agentStore'
 import { useDevice } from '../hooks/useDevice'
 import { useAgentStream } from '../hooks/useAgentStream'
@@ -15,6 +16,10 @@ export function ExplorePage() {
   const [appName, setAppName] = useState('linkedin')
   const [maxRounds, setMaxRounds] = useState('10')
   const [provider, setProvider] = useState('gemini')
+  const [deviceSerial, setDeviceSerial] = useState('')
+  const [maxTokens, setMaxTokens] = useState('')
+  const [maxCostUsd, setMaxCostUsd] = useState('')
+  const [maxLlmCalls, setMaxLlmCalls] = useState('')
   const [running, setRunning] = useState(false)
 
   const {
@@ -37,7 +42,15 @@ export function ExplorePage() {
     if (!appName.trim()) return
     setRunning(true)
     try {
-      const res = await agentApi.explore(appName, parseInt(maxRounds), provider)
+      const res = await agentApi.explore({
+        app_name: appName,
+        provider,
+        ...(maxRounds.trim() ? { max_rounds: parseInt(maxRounds) } : {}),
+        ...(deviceSerial ? { device_serial: deviceSerial } : {}),
+        ...(maxTokens.trim() ? { max_tokens: parseInt(maxTokens) } : {}),
+        ...(maxCostUsd.trim() ? { max_cost_usd: parseFloat(maxCostUsd) } : {}),
+        ...(maxLlmCalls.trim() ? { max_llm_calls: parseInt(maxLlmCalls) } : {}),
+      })
       setSessionId(res.session_id)
     } catch (err) {
       console.error('Failed to start explore:', err)
@@ -138,16 +151,22 @@ export function ExplorePage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs text-zinc-500 mb-2">Max Rounds</label>
-                  <input
-                    type="number"
-                    value={maxRounds}
-                    onChange={(e) => setMaxRounds(e.target.value)}
-                    min="1"
-                    max="100"
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Max Rounds</label>
+                    <input
+                      type="number"
+                      value={maxRounds}
+                      onChange={(e) => setMaxRounds(e.target.value)}
+                      min="1"
+                      max="100"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Device</label>
+                    <DevicePicker value={deviceSerial} onChange={setDeviceSerial} />
+                  </div>
                 </div>
 
                 <div>
@@ -161,7 +180,43 @@ export function ExplorePage() {
                     <option value="openai">GPT-4o</option>
                     <option value="anthropic">Claude</option>
                     <option value="ollama">Ollama (local)</option>
+                    <option value="cerebras">Cerebras (text-only)</option>
+                    <option value="glm">GLM</option>
                   </select>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Max Tokens</label>
+                    <input
+                      type="number"
+                      value={maxTokens}
+                      onChange={(e) => setMaxTokens(e.target.value)}
+                      min="0"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Max Cost ($)</label>
+                    <input
+                      type="number"
+                      value={maxCostUsd}
+                      onChange={(e) => setMaxCostUsd(e.target.value)}
+                      min="0"
+                      step="0.01"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Max LLM Calls</label>
+                    <input
+                      type="number"
+                      value={maxLlmCalls}
+                      onChange={(e) => setMaxLlmCalls(e.target.value)}
+                      min="0"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
                 </div>
 
                 <TaskInput

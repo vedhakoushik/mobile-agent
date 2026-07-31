@@ -1,12 +1,31 @@
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Smartphone, Database, ChevronRight } from 'lucide-react'
+import { clsx } from 'clsx'
 import { StatusChip } from '../components/StatusChip'
 import { useAgentStore } from '../store/agentStore'
 import { useDevice } from '../hooks/useDevice'
+import { deviceApi, type HealthDetailed } from '../api/client'
 
 export function SetupPage() {
   const { deviceStatus } = useAgentStore()
+  const [health, setHealth] = useState<HealthDetailed | null>(null)
   useDevice(4000)
+
+  useEffect(() => {
+    let mounted = true
+    deviceApi
+      .healthDetailed()
+      .then((res) => {
+        if (mounted) setHealth(res)
+      })
+      .catch(() => {
+        if (mounted) setHealth(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4 space-y-8">
@@ -79,6 +98,54 @@ export function SetupPage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* System Status */}
+      <div className="border border-zinc-800 rounded-xl p-5 space-y-4">
+        <div className="text-sm font-medium text-zinc-200">System Status</div>
+
+        {!health ? (
+          <div className="flex items-center gap-3 text-xs font-mono">
+            <span className={clsx('w-2 h-2 rounded-full', 'bg-red-400')} />
+            <span className="text-sky-400 w-24 shrink-0">backend</span>
+            <span className="text-red-400">unreachable</span>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5 text-xs font-mono">
+              {[
+                { label: 'chromadb', ok: health.chromadb.reachable, value: health.chromadb.reachable ? 'reachable' : 'unreachable' },
+                { label: 'neo4j', ok: health.neo4j.reachable, value: health.neo4j.reachable ? 'reachable' : 'unreachable' },
+                { label: 'langfuse', ok: health.langfuse.enabled, value: health.langfuse.enabled ? 'enabled' : 'disabled' },
+                { label: 'ollama', ok: health.ollama.reachable, value: health.ollama.reachable ? 'reachable' : 'unreachable' },
+              ].map((row) => (
+                <div key={row.label} className="flex items-center gap-3">
+                  <span className={clsx('w-2 h-2 rounded-full shrink-0', row.ok ? 'bg-emerald-400' : 'bg-red-400')} />
+                  <span className="text-sky-400 w-24 shrink-0">{row.label}</span>
+                  <span className={row.ok ? 'text-emerald-300' : 'text-red-400'}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 border-t border-zinc-800">
+              <div className="text-xs text-zinc-500 mb-2">Connected devices ({health.devices.count})</div>
+              {health.devices.serials.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {health.devices.serials.map((serial) => (
+                    <span
+                      key={serial}
+                      className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 rounded text-xs font-mono text-zinc-300"
+                    >
+                      {serial}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-600">No devices connected</div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Navigate */}
