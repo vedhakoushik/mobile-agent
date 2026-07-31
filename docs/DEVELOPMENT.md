@@ -72,6 +72,25 @@ This installs the system image via `sdkmanager`, creates the AVD if it doesn't e
 headless (`-no-window -no-audio`), waits for boot completion, and dismisses the keyguard. Requires
 `sdkmanager`, `avdmanager`, and `emulator` on `PATH` (part of Android SDK cmdline-tools).
 
+## API authentication
+
+Every REST endpoint (except `GET /health`) requires `X-API-Key`; the WebSocket requires
+`?token=` on the connection URL (browsers can't set custom headers during a WS handshake).
+Generate one and set it in **both** `.env` (`API_KEY=...`) and `frontend/.env`
+(`VITE_API_KEY=...`, same value — Vite bakes it in at build time, so restart the dev server
+after changing it):
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+Leaving `API_KEY` unset runs with **no auth at all** — every endpoint, including the one that
+resolves credential-vault secrets, is open to anyone who can reach the port. The backend prints a
+loud warning at startup if this is the case. Fine for a quick local test; do not leave it unset if
+this is reachable beyond `localhost`.
+
+The `VITE_API_KEY` baked into the frontend build is a pragmatic tradeoff for this project's
+single-user local-dev model, not real per-user auth — the person building the frontend is assumed
+to be the same person running the backend on their own machine.
+
 ## Navigation graph (optional, Neo4j)
 
 Explore mode records screen-to-screen transitions if Neo4j is reachable — entirely optional, fails

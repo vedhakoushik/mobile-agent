@@ -70,7 +70,9 @@ export class AgentWebSocket {
 
   connect(): void {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${protocol}://${location.host}/ws/${this.sessionId}`
+    const apiKey = import.meta.env.VITE_API_KEY as string | undefined
+    const tokenParam = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
+    const url = `${protocol}://${location.host}/ws/${this.sessionId}${tokenParam}`
     this.ws = new WebSocket(url)
 
     this.ws.onmessage = (e) => {

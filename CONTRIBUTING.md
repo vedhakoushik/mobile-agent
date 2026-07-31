@@ -67,10 +67,12 @@ Concrete example of the shape a substantial contribution takes here:
 
 ## Security note for reviewers
 
-There is currently no authentication on the API or WebSocket, and the FastAPI CORS policy allows
-all origins in dev (`api/main.py`). Do not merge changes that assume this is safe to expose beyond
-localhost/a trusted network without first adding auth — flag it in review if a PR moves in that
-direction.
+`X-API-Key`/`?token=` auth (`backend/security/auth.py`) is required whenever `API_KEY` is set — but
+it's a single shared key, not per-user auth, and if `API_KEY` is left unset the backend runs with
+no auth at all (loud startup warning, but no enforcement). CORS is restricted to known localhost
+origins, no wildcard. Do not merge changes that assume the shared-key model is safe for a
+multi-user or public deployment without real per-user auth — flag it in review if a PR moves in
+that direction.
 
 ## Commit / PR conventions
 

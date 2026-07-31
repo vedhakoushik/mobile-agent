@@ -12,6 +12,7 @@ load_dotenv()
 from .routers import device_router, agent_router, kb_router
 from .ws.manager import ws_manager
 from ..device.registry import DeviceRegistry
+from ..security.auth import ApiKeyAuthMiddleware, verify_ws_token
 
 
 @asynccontextmanager
@@ -26,6 +27,14 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Connected to {len(connected)} device(s): {connected}")
     app.state.devices = registry
 
+    if not os.environ.get("API_KEY"):
+        print(
+            "[startup] SECURITY WARNING: API_KEY is not set — every endpoint is "
+            "reachable by anyone who can reach this port, including the one that "
+            "resolves credential-vault secrets. Set API_KEY in .env before "
+            "exposing this beyond localhost."
+        )
+
     yield
 
     # shutdown
@@ -39,13 +48,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Middleware runs in reverse-registration order (last added = outermost / runs
+# first), so CORS must be added AFTER auth to actually wrap it and handle
+# preflight before the auth check sees the request.
+app.add_middleware(ApiKeyAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",   # Vite dev server
         "http://localhost:80",
         "http://localhost",
-        "*",                       # allow all in dev; restrict in prod
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -64,6 +76,12 @@ async def health():
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    token = websocket.query_params.get("token")
+    if not verify_ws_token(token):
+        # Reject before accept() — never establish the connection for a bad/missing
+        # token. 1008 = policy violation, the closest standard WS close code for this.
+        await websocket.close(code=1008)
+        return
     await ws_manager.connect(session_id, websocket)
     try:
         while True:

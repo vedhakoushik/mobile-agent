@@ -1,8 +1,15 @@
 import axios from 'axios'
 
+// VITE_API_KEY is baked in at build time — acceptable for this project's
+// single-user local-dev model (the person running the frontend build is the
+// same person running the backend on their own machine), not a substitute
+// for real auth in a multi-user deployment.
 export const api = axios.create({
   baseURL: '/api/v1',
   timeout: 10_000,
+  headers: import.meta.env.VITE_API_KEY
+    ? { 'X-API-Key': import.meta.env.VITE_API_KEY }
+    : {},
 })
 
 api.interceptors.response.use(

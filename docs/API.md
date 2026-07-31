@@ -3,11 +3,13 @@
 Base URL (local dev): `http://localhost:8000/api/v1`
 Base URL (Docker Compose, via nginx): `http://localhost/api/v1`
 
-All request/response bodies are JSON. There is no authentication layer — do not expose this
-backend beyond a trusted local network without adding one (see
-[CONTRIBUTING.md](../CONTRIBUTING.md)). This matters more than it used to: the backend now also
-holds a credential vault (`secrets.yaml`) that any caller with API access can trigger a `type_secret`
-action against, even though the *value* itself never leaves the server.
+All request/response bodies are JSON. Every REST endpoint except `GET /health` requires an
+`X-API-Key` header; the WebSocket requires `?token=` on the connection URL — see
+[docs/DEVELOPMENT.md](DEVELOPMENT.md#api-authentication). This is a single shared key, not
+per-user auth — do not expose this backend beyond a trusted network on that basis alone. It
+matters more than a typical dev tool: the backend also holds a credential vault (`secrets.yaml`)
+that any caller with the key can trigger a `type_secret` action against, even though the *value*
+itself never leaves the server.
 
 ## Health
 
