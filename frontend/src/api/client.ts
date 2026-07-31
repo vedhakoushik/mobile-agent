@@ -145,6 +145,68 @@ export interface HistoryEntry {
   created_at: string
 }
 
+export interface StartRecordingRequest {
+  task_description: string
+  device_serial?: string
+}
+
+export interface StartRecordingResponse {
+  recording_id: string
+}
+
+export interface RecordStepRequest {
+  recording_id: string
+  action_type: string
+  params: Record<string, unknown>
+  description?: string
+}
+
+export interface RecordStepResponse {
+  ok: boolean
+  steps_recorded: number
+}
+
+export interface StopRecordingRequest {
+  recording_id: string
+}
+
+export interface StopRecordingResponse {
+  ok: boolean
+  path: string
+}
+
+export interface ReplayRequest {
+  device_serial?: string
+  on_drift?: 'stop' | 'skip'
+}
+
+export interface ReplayFailure {
+  step: number
+  reason: string
+  similarity?: number
+}
+
+export interface ReplayResponse {
+  completed: boolean
+  steps_executed: number
+  steps_total: number
+  failures: ReplayFailure[]
+  stopped_at_step?: number
+  reason?: string
+  similarity?: number
+}
+
+export interface DeleteDemoResponse {
+  ok: boolean
+}
+
+export interface DemoListItem {
+  recording_id: string
+  task_description: string
+  step_count: number
+  created_at: string
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const deviceApi = {
@@ -178,4 +240,20 @@ export const kbApi = {
   search: (app_name: string, q: string) =>
     api.get<KBList>(`/kb/${app_name}/search`, { params: { q } }).then((r) => r.data),
   clear: (app_name: string) => api.delete(`/kb/${app_name}`).then((r) => r.data),
+}
+
+export const demonstrationsApi = {
+  startRecording: (app_name: string, body: StartRecordingRequest) =>
+    api.post<StartRecordingResponse>(`/demonstrations/${app_name}/record/start`, body).then((r) => r.data),
+  recordStep: (app_name: string, body: RecordStepRequest) =>
+    api.post<RecordStepResponse>(`/demonstrations/${app_name}/record/step`, body).then((r) => r.data),
+  stopRecording: (app_name: string, body: StopRecordingRequest) =>
+    api.post<StopRecordingResponse>(`/demonstrations/${app_name}/record/stop`, body).then((r) => r.data),
+  list: (app_name: string) => api.get<DemoListItem[]>(`/demonstrations/${app_name}`).then((r) => r.data),
+  replay: (app_name: string, recording_id: string, body: ReplayRequest) =>
+    api
+      .post<ReplayResponse>(`/demonstrations/${app_name}/${recording_id}/replay`, body, { timeout: 120_000 })
+      .then((r) => r.data),
+  delete: (app_name: string, recording_id: string) =>
+    api.delete<DeleteDemoResponse>(`/demonstrations/${app_name}/${recording_id}`).then((r) => r.data),
 }
