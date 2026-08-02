@@ -5,17 +5,27 @@ that listens for a wake phrase from inside ANY app and executes the resulting
 command through the same automation pipeline the web UI already drives.
 
 **Status: code complete for v1 (laptop-assisted), unbuilt.** Every class is
-now real — wake word, speech-to-text, backend dispatch, on-device gesture
-execution (the last is a building block for a future fully-local v2, not
-wired into the voice flow yet — see "Known architectural gap" below). What's
-left is entirely on your side: a Picovoice account + wake-word model, and a
-first Android Studio build. Verification note: built without a working
-`java`/`gradle` CLI — a JDK 21 was found bundled inside Android Studio and
-used with its bundled `kotlinc` to syntax/type-check every file against the
-real `android.jar` SDK jar (caught and fixed one real bug this way — a
-variable-shadowing mistake in `MainActivity`). A full `./gradlew build` was
-**never run** — that first real compile happens when you open this in
-Android Studio.
+now real — wake word (two implementations, see below), speech-to-text,
+backend dispatch, on-device gesture execution (the last is a building block
+for a future fully-local v2, not wired into the voice flow yet — see "Known
+architectural gap" below). What's left is entirely on your side: a first
+Android Studio build, and optionally a Picovoice account. Verification note:
+built without a working `java`/`gradle` CLI — a JDK 21 was found bundled
+inside Android Studio and used with its bundled `kotlinc` to syntax/type-check
+every file against the real `android.jar` SDK jar (caught and fixed one real
+bug this way — a variable-shadowing mistake in `MainActivity`). A full
+`./gradlew build` was **never run** — that first real compile happens when
+you open this in Android Studio.
+
+**Picovoice signup update:** their self-service console now gates signup to
+recognized company/institutional email domains — confirmed live against the
+real form (`gmail.com` and a test `.ac.in` address were both rejected with
+"Please enter a valid company email", `microsoft.com` was accepted). Your
+real college email might pass, worth trying, but no guarantee. Because of
+this, wake-word detection defaults to `ContinuousWakeWordListener` (below) —
+**no external account needed, works out of the box** — and automatically
+upgrades to Porcupine only if you do get a Picovoice AccessKey and save it in
+Settings.
 
 ## Architecture
 
@@ -23,8 +33,11 @@ Android Studio.
 "Hey Agent, send Ramu a message" (spoken while inside YouTube)
         │
         ▼
-WakeWordListener (Porcupine, on-device)
+WakeWordListener — ContinuousWakeWordListener (default, no account needed)
+                    or PorcupineWakeWordListener (if you have an AccessKey)
         │ detects wake phrase → HeyAgentAccessibilityService.onWakeWordDetected()
+        │ (ContinuousWakeWordListener may already have the command text too,
+        │  if it was spoken in the same breath — skips the step below)
         ▼
 CommandInterpreter
         │ Android SpeechRecognizer (EXTRA_PREFER_OFFLINE), captures the rest
@@ -65,7 +78,8 @@ you want this built out next.
 | `HeyAgentAccessibilityService` — event plumbing, screen dump, **performAction()** (real gesture dispatch), wake-word wiring | Real |
 | `BackendClient` — POST to `/agent/chat` | Real, uses OkHttp + org.json |
 | `CommandInterpreter` — SpeechRecognizer → BackendClient | Real |
-| `WakeWordListener` (`PorcupineWakeWordListener`) | Real, written against Porcupine's documented API shape — **not compiled against the real SDK artifact** (no network dependency fetch available here); treat any first-build errors in this one file as the SDK's actual API differing slightly from what's written |
+| `ContinuousWakeWordListener` — SpeechRecognizer restart-loop, no account needed | Real — this is the **default** wake-word implementation |
+| `PorcupineWakeWordListener` | Real, written against Porcupine's documented API shape — **not compiled against the real SDK artifact** (no network dependency fetch available here); treat any first-build errors in this one file as the SDK's actual API differing slightly from what's written. Only used if you save a Picovoice AccessKey in Settings |
 
 ## Your part — step by step
 
@@ -76,16 +90,20 @@ you want this built out next.
   real `gradle-wrapper.jar` (not committed here, Android Studio creates it)
   and downloads androidx/Material/OkHttp/Porcupine.
 - Fix whatever the sync/first build surfaces. Most likely spot: `WakeWordListener.kt`
-  if Porcupine's real API differs from what's written (flagged above).
+  if Porcupine's real API differs from what's written (flagged above) — but
+  even if that whole file's Porcupine class is broken, `ContinuousWakeWordListener`
+  in the same file doesn't depend on it and should be unaffected.
 
-### 2. Wake-word model (10–15 min, free)
-1. Go to console.picovoice.ai, sign up (free tier).
-2. Under **AccessKey**, copy your key — you'll paste this into the app later,
-   not into any file in this repo.
-3. Under **Porcupine → Create Wake Word**, train a model for the phrase
+### 2. Wake-word model — OPTIONAL, skip if you don't have a Picovoice AccessKey
+The app works without this (defaults to `ContinuousWakeWordListener`, no
+account needed). Only do this if you got a Picovoice AccessKey (see the
+status note above — signup is gated to company/institutional emails now):
+1. In console.picovoice.ai, under **AccessKey**, copy your key — you'll paste
+   this into the app later, not into any file in this repo.
+2. Under **Porcupine → Create Wake Word**, train a model for the phrase
    **"Hey Agent"**, target platform **Android**. Download the resulting
    `.ppn` file.
-4. Copy that file into `android/app/src/main/assets/hey_agent.ppn` (that
+3. Copy that file into `android/app/src/main/assets/hey_agent.ppn` (that
    exact path/filename — `PorcupineWakeWordListener` expects it). This file
    is yours, not committed to git (same posture as API keys).
 
@@ -110,12 +128,15 @@ you want this built out next.
    mic → backend → Deploy pipeline WITHOUT needing the wake word yet. Confirm
    this works before moving on — it's the same pipeline the wake word will
    trigger, just manually invoked.
-5. Under **Wake word**, paste your Picovoice AccessKey, tap **Save AccessKey**.
+5. (Optional) Under **Wake word**, paste your Picovoice AccessKey, tap
+   **Save AccessKey** — skip this to use the default `ContinuousWakeWordListener`
+   instead, no account needed.
 6. Tap **Open Accessibility Settings**, find "Hey Agent", enable it. This is
    what actually starts the wake-word listener (see
    `HeyAgentAccessibilityService.onServiceConnected()`) — do this LAST, after
    steps 2–5, since mic permission needs to already be granted (step 4) for
-   Porcupine to start successfully when the service auto-connects.
+   the listener (Porcupine or the default) to start successfully when the
+   service auto-connects.
 
 ### 5. Say "Hey Agent" from inside any app
 If all of the above is done, this should now work ambiently. If it doesn't,

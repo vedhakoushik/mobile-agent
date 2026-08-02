@@ -15,12 +15,14 @@ import android.view.accessibility.AccessibilityNodeInfo
  *
  * This is also where the full ambient chain gets wired together:
  * WakeWordListener detects "Hey Agent" -> CommandInterpreter listens for the
- * rest of the utterance -> BackendClient sends it to the backend's
- * /agent/chat endpoint. Starts automatically once BOTH the accessibility
- * service is enabled AND a Picovoice AccessKey is saved in Settings; falls
- * back to the no-op UnimplementedWakeWordListener (nothing happens
- * automatically, but the manual "Test Listen" button in MainActivity still
- * works) when the AccessKey hasn't been configured yet.
+ * rest of the utterance (unless the wake-word implementation already caught
+ * it in the same breath, see WakeWordListener's remainderText) ->
+ * BackendClient sends it to the backend's /agent/chat endpoint. Starts
+ * automatically as soon as the accessibility service is enabled: uses
+ * PorcupineWakeWordListener if a Picovoice AccessKey is saved in Settings,
+ * otherwise falls back to ContinuousWakeWordListener (SpeechRecognizer-based,
+ * no external account needed — see that class's doc comment for the
+ * tradeoffs), so wake-word detection works out of the box either way.
  */
 class HeyAgentAccessibilityService : AccessibilityService() {
 
@@ -50,27 +52,45 @@ class HeyAgentAccessibilityService : AccessibilityService() {
         val listener = if (accessKey != null) {
             PorcupineWakeWordListener(this, accessKey)
         } else {
-            Log.i(TAG, "No Picovoice AccessKey configured — wake word disabled, use Test Listen instead")
-            UnimplementedWakeWordListener()
+            Log.i(TAG, "No Picovoice AccessKey configured — using the SpeechRecognizer-based fallback")
+            ContinuousWakeWordListener(this)
         }
         wakeWordListener = listener
-        listener.start { onWakeWordDetected() }
+        listener.start { remainderText -> onWakeWordDetected(remainderText) }
     }
 
-    private fun onWakeWordDetected() {
+    /**
+     * @param remainderText Command text already captured in the same breath
+     *   as the wake phrase (ContinuousWakeWordListener supplies this; null
+     *   from Porcupine, which is a pure keyword spotter with no transcript).
+     *   When present, skip the extra listen and dispatch straight away.
+     */
+    private fun onWakeWordDetected(remainderText: String?) {
         if (!Settings.isConfigured(this)) {
             Log.w(TAG, "Wake word heard but no backend URL configured in Settings")
             return
         }
         val client = BackendClient(baseUrl = Settings.getBaseUrl(this), apiKey = Settings.getApiKey(this))
-        val interpreter = CommandInterpreter(this, client, deviceSerial = Settings.getDeviceSerial(this))
-        commandInterpreter = interpreter
-        interpreter.listenForCommand { result ->
-            result.fold(
-                onSuccess = { r -> Log.i(TAG, "Chat command sent: task='${r.task}' app=${r.appName} session=${r.sessionId}") },
-                onFailure = { e -> Log.e(TAG, "Chat command failed: ${e.message}") },
-            )
+        val deviceSerial = Settings.getDeviceSerial(this)
+
+        if (!remainderText.isNullOrBlank()) {
+            Log.i(TAG, "Wake word + command in one breath: \"$remainderText\"")
+            client.sendChatCommand(remainderText, deviceSerial = deviceSerial) { result ->
+                logChatResult(result)
+            }
+            return
         }
+
+        val interpreter = CommandInterpreter(this, client, deviceSerial = deviceSerial)
+        commandInterpreter = interpreter
+        interpreter.listenForCommand { result -> logChatResult(result) }
+    }
+
+    private fun logChatResult(result: Result<ChatResult>) {
+        result.fold(
+            onSuccess = { r -> Log.i(TAG, "Chat command sent: task='${r.task}' app=${r.appName} session=${r.sessionId}") },
+            onFailure = { e -> Log.e(TAG, "Chat command failed: ${e.message}") },
+        )
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

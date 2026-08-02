@@ -21,8 +21,8 @@ import androidx.core.content.ContextCompat
  * (Android requires that be a manual, explicit user action — it can never be
  * granted from code), holds the backend connection settings, and provides a
  * manual "Test Listen" button so the mic -> backend -> chat pipeline can be
- * validated BEFORE the wake-word engine (WakeWordListener) exists — nothing
- * currently triggers listening automatically.
+ * validated independently of the wake-word engine (which starts on its own
+ * once the accessibility service is enabled — see HeyAgentAccessibilityService).
  *
  * Built programmatically (no layout XML) to keep this skeleton's resource
  * surface minimal while the rest of the pipeline is stubbed out.
