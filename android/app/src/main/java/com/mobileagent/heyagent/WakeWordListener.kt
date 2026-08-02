@@ -3,6 +3,8 @@ package com.mobileagent.heyagent
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -33,18 +35,27 @@ class UnimplementedWakeWordListener : WakeWordListener {
 }
 
 /**
- * Zero-account fallback: no Picovoice signup required. Runs Android's
- * built-in SpeechRecognizer in a restart loop (there's no public "continuous
- * streaming" mode — SpeechRecognizer sessions end after a pause in speech,
- * so this is the standard workaround: start a new session immediately after
- * each one ends) and checks each transcript for the phrase "hey agent".
+ * Zero-account fallback: no Picovoice signup required. Two-stage pipeline
+ * matching the same shape "Hey Google" uses at the hardware level (see
+ * VoiceActivityGate's doc comment for why the true DSP-level API,
+ * AlwaysOnHotwordDetector, isn't realistic for this app):
  *
- * Tradeoffs vs. a dedicated wake-word engine (Porcupine): keeps the mic
- * actively decoding rather than a lightweight always-on keyword spotter, so
- * more battery/CPU, and (like CommandInterpreter) only genuinely on-device
- * if the phone has an offline recognition language pack installed —
- * EXTRA_PREFER_OFFLINE is a hint, not a guarantee. Trade made deliberately:
- * this needs zero external account and works today, unlike Porcupine which
+ *   Stage 1 (cheap):  VoiceActivityGate — raw AudioRecord + energy
+ *                      thresholding, no STT engine running, waits for
+ *                      speech-level sound before doing anything else.
+ *   Stage 2 (costly):  SpeechRecognizer session, only started once Stage 1
+ *                      fires. Checks the transcript for "hey agent". On
+ *                      completion (match or not), goes back to Stage 1
+ *                      rather than immediately starting another Stage 2
+ *                      session — this is what actually saves battery vs.
+ *                      the naive always-be-transcribing loop this replaced.
+ *
+ * Still not free: Stage 2 is real STT (network-backed unless an offline
+ * language pack is installed — EXTRA_PREFER_OFFLINE is a hint, not a
+ * guarantee, same caveat as CommandInterpreter), and Stage 1's AudioRecord
+ * loop itself has some baseline cost (far cheaper than STT, but not the
+ * near-zero a dedicated DSP chip achieves). Trade made deliberately: this
+ * needs zero external account and works today, unlike Porcupine which
  * currently requires a Picovoice Console signup that rejects personal email
  * domains (confirmed against the real signup form — gmail.com and a test
  * .ac.in address were both rejected with "Please enter a valid company
@@ -56,14 +67,29 @@ class ContinuousWakeWordListener(
 ) : WakeWordListener {
 
     private var recognizer: SpeechRecognizer? = null
+    private var vadGate: VoiceActivityGate? = null
     private var listening = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun start(onWakeWordDetected: (String?) -> Unit) {
         if (listening) return
         listening = true
-        listenOnce(onWakeWordDetected)
+        gateThenListen(onWakeWordDetected)
     }
 
+    /** Stage 1: wait for speech-level energy before paying for real STT. */
+    private fun gateThenListen(onWakeWordDetected: (String?) -> Unit) {
+        if (!listening) return
+        val gate = VoiceActivityGate()
+        vadGate = gate
+        gate.start {
+            // Fires on VoiceActivityGate's own worker thread — SpeechRecognizer
+            // must be created/started on the main thread, so hop back.
+            mainHandler.post { listenOnce(onWakeWordDetected) }
+        }
+    }
+
+    /** Stage 2: one real SpeechRecognizer session. */
     private fun listenOnce(onWakeWordDetected: (String?) -> Unit) {
         if (!listening) return
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -90,18 +116,19 @@ class ContinuousWakeWordListener(
                         onWakeWordDetected(remainder)
                     }
                 }
-                relisten(onWakeWordDetected)
+                backToGate(onWakeWordDetected)
             }
 
             override fun onError(error: Int) {
-                // ERROR_NO_MATCH / ERROR_SPEECH_TIMEOUT are the expected steady
-                // state (most listening windows end in silence) — just loop
-                // again immediately. Anything else still loops but is worth
+                // ERROR_NO_MATCH / ERROR_SPEECH_TIMEOUT happen when the VAD
+                // gate fired on a noise burst that wasn't actually speech
+                // (or speech too short/quiet for STT to transcribe) — just
+                // go back to gating. Anything else still loops but is worth
                 // seeing in logs if this is misbehaving.
                 if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                     Log.w(TAG, "Recognition error code=$error")
                 }
-                relisten(onWakeWordDetected)
+                backToGate(onWakeWordDetected)
             }
 
             // Unused callbacks required by the RecognitionListener interface.
@@ -121,16 +148,16 @@ class ContinuousWakeWordListener(
         r.startListening(intent)
     }
 
-    private fun relisten(onWakeWordDetected: (String?) -> Unit) {
+    private fun backToGate(onWakeWordDetected: (String?) -> Unit) {
         recognizer?.destroy()
         recognizer = null
-        // Immediate restart — SpeechRecognizer instances are one-shot per
-        // session, this is what makes the loop "continuous" in practice.
-        listenOnce(onWakeWordDetected)
+        gateThenListen(onWakeWordDetected)
     }
 
     override fun stop() {
         listening = false
+        vadGate?.stop()
+        vadGate = null
         recognizer?.destroy()
         recognizer = null
     }

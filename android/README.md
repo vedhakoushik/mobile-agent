@@ -78,7 +78,7 @@ you want this built out next.
 | `HeyAgentAccessibilityService` — event plumbing, screen dump, **performAction()** (real gesture dispatch), wake-word wiring | Real |
 | `BackendClient` — POST to `/agent/chat` | Real, uses OkHttp + org.json |
 | `CommandInterpreter` — SpeechRecognizer → BackendClient | Real |
-| `ContinuousWakeWordListener` — SpeechRecognizer restart-loop, no account needed | Real — this is the **default** wake-word implementation |
+| `ContinuousWakeWordListener` + `VoiceActivityGate` — two-stage: cheap `AudioRecord` energy gate before SpeechRecognizer, no account needed | Real — this is the **default** wake-word implementation; see [docs/wake-word-power-optimization.md](docs/wake-word-power-optimization.md) for why it's two-stage and how to tune it |
 | `PorcupineWakeWordListener` | Real, written against Porcupine's documented API shape — **not compiled against the real SDK artifact** (no network dependency fetch available here); treat any first-build errors in this one file as the SDK's actual API differing slightly from what's written. Only used if you save a Picovoice AccessKey in Settings |
 
 ## Your part — step by step
