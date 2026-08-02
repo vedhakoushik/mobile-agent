@@ -14,15 +14,12 @@ import android.view.accessibility.AccessibilityNodeInfo
  * in the foreground, without that app needing to expose any special API.
  *
  * This is also where the full ambient chain gets wired together:
- * WakeWordListener detects "Hey Agent" -> CommandInterpreter listens for the
- * rest of the utterance (unless the wake-word implementation already caught
- * it in the same breath, see WakeWordListener's remainderText) ->
- * BackendClient sends it to the backend's /agent/chat endpoint. Starts
- * automatically as soon as the accessibility service is enabled: uses
- * PorcupineWakeWordListener if a Picovoice AccessKey is saved in Settings,
- * otherwise falls back to ContinuousWakeWordListener (SpeechRecognizer-based,
- * no external account needed — see that class's doc comment for the
- * tradeoffs), so wake-word detection works out of the box either way.
+ * ContinuousWakeWordListener detects "Hey Agent" -> CommandInterpreter
+ * listens for the rest of the utterance (unless it was already caught in the
+ * same breath, see WakeWordListener's remainderText) -> BackendClient sends
+ * it to the backend's /agent/chat endpoint. Starts automatically as soon as
+ * the accessibility service is enabled — no external account needed, see
+ * ContinuousWakeWordListener's doc comment for how it works.
  */
 class HeyAgentAccessibilityService : AccessibilityService() {
 
@@ -48,22 +45,16 @@ class HeyAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun startWakeWordListening() {
-        val accessKey = Settings.getPicovoiceAccessKey(this)
-        val listener = if (accessKey != null) {
-            PorcupineWakeWordListener(this, accessKey)
-        } else {
-            Log.i(TAG, "No Picovoice AccessKey configured — using the SpeechRecognizer-based fallback")
-            ContinuousWakeWordListener(this)
-        }
+        val listener = ContinuousWakeWordListener(this)
         wakeWordListener = listener
         listener.start { remainderText -> onWakeWordDetected(remainderText) }
     }
 
     /**
      * @param remainderText Command text already captured in the same breath
-     *   as the wake phrase (ContinuousWakeWordListener supplies this; null
-     *   from Porcupine, which is a pure keyword spotter with no transcript).
-     *   When present, skip the extra listen and dispatch straight away.
+     *   as the wake phrase, when the user said the whole thing in one go
+     *   ("hey agent send a message to ramu"). When present, skip the extra
+     *   listen and dispatch straight away.
      */
     private fun onWakeWordDetected(remainderText: String?) {
         if (!Settings.isConfigured(this)) {

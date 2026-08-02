@@ -9,6 +9,3 @@
 .cxx
 local.properties
 app/build/
-
-# Picovoice wake-word model — user-specific, same posture as backend/.env
-app/src/main/assets/*.ppn

@@ -33,7 +33,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var baseUrlInput: EditText
     private lateinit var apiKeyInput: EditText
     private lateinit var deviceSerialInput: EditText
-    private lateinit var picovoiceKeyInput: EditText
     private lateinit var resultText: TextView
     private var commandInterpreter: CommandInterpreter? = null
 
@@ -75,26 +74,7 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
-        root.addView(sectionLabel("Wake word (\"Hey Agent\")"))
-        root.addView(
-            TextView(this).apply {
-                text = "Requires a Picovoice AccessKey (console.picovoice.ai, free) and " +
-                    "app/src/main/assets/hey_agent.ppn — see android/README.md. Leave blank " +
-                    "to skip automatic wake-word listening and only use Test Listen above."
-            },
-        )
-        picovoiceKeyInput = labeledInput(root, "Picovoice AccessKey", "")
-        root.addView(
-            Button(this).apply {
-                text = "Save AccessKey (restart app or re-enable accessibility service to apply)"
-                setOnClickListener {
-                    Settings.savePicovoiceAccessKey(this@MainActivity, picovoiceKeyInput.text.toString())
-                    toast("Saved — the accessibility service reads this on next start")
-                }
-            },
-        )
-
-        root.addView(sectionLabel("Manual test (no wake word needed)"))
+        root.addView(sectionLabel("Manual test"))
 
         root.addView(
             Button(this).apply {
@@ -128,7 +108,6 @@ class MainActivity : AppCompatActivity() {
         baseUrlInput.setText(Settings.getBaseUrl(this))
         apiKeyInput.setText(Settings.getApiKey(this) ?: "")
         deviceSerialInput.setText(Settings.getDeviceSerial(this) ?: "")
-        picovoiceKeyInput.setText(Settings.getPicovoiceAccessKey(this) ?: "")
     }
 
     private fun saveSettings() {

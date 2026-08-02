@@ -18,7 +18,6 @@ object Settings {
     private const val KEY_BASE_URL = "backend_base_url"
     private const val KEY_API_KEY = "backend_api_key"
     private const val KEY_DEVICE_SERIAL = "device_serial"
-    private const val KEY_PICOVOICE_ACCESS_KEY = "picovoice_access_key"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -41,16 +40,4 @@ object Settings {
     }
 
     fun isConfigured(context: Context): Boolean = getBaseUrl(context).isNotBlank()
-
-    /**
-     * Picovoice Console AccessKey (console.picovoice.ai) — required to
-     * initialize Porcupine. Same "not a secret that belongs in git" posture
-     * as the backend API key above; entered once on-device.
-     */
-    fun getPicovoiceAccessKey(context: Context): String? =
-        prefs(context).getString(KEY_PICOVOICE_ACCESS_KEY, null)?.takeIf { it.isNotBlank() }
-
-    fun savePicovoiceAccessKey(context: Context, accessKey: String) {
-        prefs(context).edit().putString(KEY_PICOVOICE_ACCESS_KEY, accessKey.trim()).apply()
-    }
 }

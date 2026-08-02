@@ -44,11 +44,5 @@ dependencies {
     // HTTP client for talking to the mobile-agent FastAPI backend (POST /agent/chat).
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Wake-word engine. Compiling only needs this dependency — the actual
-    // AccessKey (console.picovoice.ai, free tier) and a custom "Hey Agent"
-    // .ppn wake-word model are supplied at runtime (see Settings.kt /
-    // WakeWordListener.kt), not required to build.
-    implementation("ai.picovoice:porcupine-android:3.0.3")
-
     testImplementation("junit:junit:4.13.2")
 }
