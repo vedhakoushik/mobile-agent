@@ -28,6 +28,7 @@ import android.util.Log
 class CommandInterpreter(
     private val context: Context,
     private val backendClient: BackendClient,
+    private val deviceSerial: String? = null,
 ) {
     private var recognizer: SpeechRecognizer? = null
 
@@ -49,7 +50,7 @@ class CommandInterpreter(
                     return
                 }
                 Log.i("CommandInterpreter", "Heard: $text")
-                backendClient.sendChatCommand(text, onResult = onCommandSent)
+                backendClient.sendChatCommand(text, deviceSerial = deviceSerial, onResult = onCommandSent)
             }
 
             override fun onError(error: Int) {

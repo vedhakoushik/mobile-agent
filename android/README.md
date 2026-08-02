@@ -1,17 +1,21 @@
-# Hey Agent — ambient voice assistant (skeleton)
+# Hey Agent — ambient voice assistant
 
 Companion Android app for mobile-agent: a "Hey Google"-style ambient assistant
 that listens for a wake phrase from inside ANY app and executes the resulting
 command through the same automation pipeline the web UI already drives.
 
-**Status: non-functional skeleton.** Project structure, manifest, and class
-shapes are in place and reviewed for correctness; the wake-word engine is not
-wired up (needs an external account, see below) and no gesture/text-entry
-execution has been ported to this app yet. Verification note: this was built
-without a working `java`/`gradle` CLI on the authoring machine — a JDK 21 was
-found bundled inside the installed Android Studio and used to sanity-check
-the toolchain, but a full `./gradlew build` was **not** run. Open this in
-Android Studio and let it sync before trusting it compiles.
+**Status: code complete for v1 (laptop-assisted), unbuilt.** Every class is
+now real — wake word, speech-to-text, backend dispatch, on-device gesture
+execution (the last is a building block for a future fully-local v2, not
+wired into the voice flow yet — see "Known architectural gap" below). What's
+left is entirely on your side: a Picovoice account + wake-word model, and a
+first Android Studio build. Verification note: built without a working
+`java`/`gradle` CLI — a JDK 21 was found bundled inside Android Studio and
+used with its bundled `kotlinc` to syntax/type-check every file against the
+real `android.jar` SDK jar (caught and fixed one real bug this way — a
+variable-shadowing mistake in `MainActivity`). A full `./gradlew build` was
+**never run** — that first real compile happens when you open this in
+Android Studio.
 
 ## Architecture
 
@@ -19,8 +23,8 @@ Android Studio and let it sync before trusting it compiles.
 "Hey Agent, send Ramu a message" (spoken while inside YouTube)
         │
         ▼
-WakeWordListener (Porcupine, on-device)  ──not wired up──▶  [TODO]
-        │ detects wake phrase
+WakeWordListener (Porcupine, on-device)
+        │ detects wake phrase → HeyAgentAccessibilityService.onWakeWordDetected()
         ▼
 CommandInterpreter
         │ Android SpeechRecognizer (EXTRA_PREFER_OFFLINE), captures the rest
@@ -39,44 +43,82 @@ process is running (today: a laptop on the same network)
 
 **Known architectural gap:** the flow above executes the command via the
 existing ADB-based Deploy pipeline, which means a laptop running the backend
-must be reachable on the same network as the phone. A "fully local, no
-laptop" version would instead route straight into
-`HeyAgentAccessibilityService.performAction()` and never leave the device —
-that's the natural v2, but requires porting the tap/text/swipe action
-executor (`backend/agent/executor.py`) to Kotlin. Left as-is for this
-skeleton since the user's brief was explicitly "local ON SETUP" (no cloud
-wake-word/STT dependency), not "no laptop at all."
+must be reachable on the same network as the phone. `HeyAgentAccessibilityService
+.performAction()` (tap/text/swipe/long_press/back, real gesture dispatch) is
+implemented and ready to be the local-execution path for a v2 that never
+leaves the device — but nothing currently calls it from the voice flow.
+Left as-is since the brief was explicitly "local ON SETUP" (no cloud
+wake-word/STT dependency), not "no laptop at all." Wiring v2 would mean:
+CommandInterpreter's recognized text → an LLM decision call made directly
+from the app (reusing something like `backend/llm/prompts.py`'s prompt
+shape) using `dumpVisibleElements()` as context → `performAction()`. Ask if
+you want this built out next.
 
 ## What's real vs. stubbed
 
 | Piece | Status |
 |---|---|
 | Gradle/AGP/Kotlin project structure | Real, standard, unverified by a full build |
-| `AndroidManifest.xml` (permissions, accessibility service declaration) | Real |
-| `MainActivity` — checks/opens Accessibility settings | Real, should work as written |
-| `HeyAgentAccessibilityService` — event plumbing, read-only screen dump | Real; `performAction()` is a stub (logs only) |
-| `BackendClient` — POST to `/agent/chat` | Real, uses OkHttp + org.json (no extra JSON dep) |
-| `CommandInterpreter` — SpeechRecognizer -> BackendClient | Real, untested on-device |
-| `WakeWordListener` | Interface only — `UnimplementedWakeWordListener` is a no-op |
+| `AndroidManifest.xml` (permissions, accessibility service, mic) | Real |
+| `MainActivity` — accessibility status, settings screen, manual "Test Listen" | Real |
+| `Settings` — SharedPreferences for backend URL/key, device serial, Picovoice AccessKey | Real |
+| `HeyAgentAccessibilityService` — event plumbing, screen dump, **performAction()** (real gesture dispatch), wake-word wiring | Real |
+| `BackendClient` — POST to `/agent/chat` | Real, uses OkHttp + org.json |
+| `CommandInterpreter` — SpeechRecognizer → BackendClient | Real |
+| `WakeWordListener` (`PorcupineWakeWordListener`) | Real, written against Porcupine's documented API shape — **not compiled against the real SDK artifact** (no network dependency fetch available here); treat any first-build errors in this one file as the SDK's actual API differing slightly from what's written |
 
-## Setup to actually run this
+## Your part — step by step
 
-1. **Open in Android Studio**, let it sync (this generates the real
-   `gradle-wrapper.jar` this repo doesn't ship — it wasn't hand-written here
-   to avoid guessing at a binary artifact).
-2. Fix whatever the first sync surfaces — AGP/Gradle/Kotlin version pins in
-   `build.gradle.kts` / `app/build.gradle.kts` were chosen for currency as of
-   this writing but weren't build-verified.
-3. **Wake-word engine**: sign up at console.picovoice.ai (free tier), get an
-   AccessKey, train a custom "Hey Agent" wake-word model (.ppn file — the
-   built-in word list doesn't include it). Uncomment the Porcupine dependency
-   in `app/build.gradle.kts` and implement `WakeWordListener` for real. Do
-   NOT commit the AccessKey or .ppn file to git — same posture as
-   `backend/.env`.
-4. **Backend reachability**: `BackendClient` needs a `baseUrl` pointing at
-   wherever `backend/api/main.py` is running (e.g. `http://192.168.1.x:8000`)
-   and the same `API_KEY` value from `backend/.env`. No settings screen exists
-   yet to configure these on-device — currently the caller must supply both
-   directly (see `BackendClient`'s constructor).
-5. Enable the accessibility service: install the app, open it, tap "Open
-   Accessibility Settings", enable "Hey Agent".
+### 1. Open the project and get it compiling
+- Install Android Studio if you don't have it (you do — it's already at
+  `C:\Program Files\Android\Android Studio`).
+- Open `mobile-agent/android/` as a project. Let it sync — this generates the
+  real `gradle-wrapper.jar` (not committed here, Android Studio creates it)
+  and downloads androidx/Material/OkHttp/Porcupine.
+- Fix whatever the sync/first build surfaces. Most likely spot: `WakeWordListener.kt`
+  if Porcupine's real API differs from what's written (flagged above).
+
+### 2. Wake-word model (10–15 min, free)
+1. Go to console.picovoice.ai, sign up (free tier).
+2. Under **AccessKey**, copy your key — you'll paste this into the app later,
+   not into any file in this repo.
+3. Under **Porcupine → Create Wake Word**, train a model for the phrase
+   **"Hey Agent"**, target platform **Android**. Download the resulting
+   `.ppn` file.
+4. Copy that file into `android/app/src/main/assets/hey_agent.ppn` (that
+   exact path/filename — `PorcupineWakeWordListener` expects it). This file
+   is yours, not committed to git (same posture as API keys).
+
+### 3. Backend reachability
+- Find your laptop's LAN IP (`ipconfig` → IPv4 Address) while the backend is
+  running (`uvicorn backend.api.main:app --host 0.0.0.0 --port 8000`, which
+  it already does in this project — `--host 0.0.0.0` matters, `localhost`
+  won't be reachable from the phone).
+- Phone and laptop must be on the same Wi-Fi network.
+
+### 4. Install and configure on-device
+1. Build & install the app on your phone (Android Studio's Run button, phone
+   connected via USB with debugging enabled, or build an APK and sideload).
+2. Open the app. Under **Backend connection**, enter:
+   - Backend URL: `http://<your-laptop-LAN-IP>:8000`
+   - API_KEY: the value of `API_KEY` in `backend/.env`
+   - Device serial: leave blank unless you specifically want commands to
+     always target one device with multiple connected
+3. Tap **Save settings**.
+4. Tap **Test Listen** — grant microphone permission when prompted, speak a
+   command (e.g. "search for cats on youtube"). This exercises the full
+   mic → backend → Deploy pipeline WITHOUT needing the wake word yet. Confirm
+   this works before moving on — it's the same pipeline the wake word will
+   trigger, just manually invoked.
+5. Under **Wake word**, paste your Picovoice AccessKey, tap **Save AccessKey**.
+6. Tap **Open Accessibility Settings**, find "Hey Agent", enable it. This is
+   what actually starts the wake-word listener (see
+   `HeyAgentAccessibilityService.onServiceConnected()`) — do this LAST, after
+   steps 2–5, since mic permission needs to already be granted (step 4) for
+   Porcupine to start successfully when the service auto-connects.
+
+### 5. Say "Hey Agent" from inside any app
+If all of the above is done, this should now work ambiently. If it doesn't,
+check Logcat filtered to `HeyAgentA11yService` / `WakeWordListener` /
+`CommandInterpreter` — every failure path in this codebase logs rather than
+silently swallowing errors.

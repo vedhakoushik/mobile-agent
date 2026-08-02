@@ -1,6 +1,9 @@
 package com.mobileagent.heyagent
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -10,11 +13,14 @@ import android.view.accessibility.AccessibilityNodeInfo
  * Google"-style assistants use to read and act on whatever app is currently
  * in the foreground, without that app needing to expose any special API.
  *
- * SKELETON STATUS: event plumbing + a read-only screen dump are real; actual
- * gesture/text-entry execution and the tap-to-element-id mapping used by the
- * backend's Deploy pipeline (see backend/perception/xml_parser.py,
- * backend/agent/executor.py) are NOT ported here yet — see performAction()
- * below.
+ * This is also where the full ambient chain gets wired together:
+ * WakeWordListener detects "Hey Agent" -> CommandInterpreter listens for the
+ * rest of the utterance -> BackendClient sends it to the backend's
+ * /agent/chat endpoint. Starts automatically once BOTH the accessibility
+ * service is enabled AND a Picovoice AccessKey is saved in Settings; falls
+ * back to the no-op UnimplementedWakeWordListener (nothing happens
+ * automatically, but the manual "Test Listen" button in MainActivity still
+ * works) when the AccessKey hasn't been configured yet.
  */
 class HeyAgentAccessibilityService : AccessibilityService() {
 
@@ -29,12 +35,42 @@ class HeyAgentAccessibilityService : AccessibilityService() {
             private set
     }
 
+    private var wakeWordListener: WakeWordListener? = null
+    private var commandInterpreter: CommandInterpreter? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "Hey Agent accessibility service connected")
-        // TODO: start WakeWordListener here once the Porcupine integration
-        // (see WakeWordListener.kt) has real credentials configured.
+        startWakeWordListening()
+    }
+
+    private fun startWakeWordListening() {
+        val accessKey = Settings.getPicovoiceAccessKey(this)
+        val listener = if (accessKey != null) {
+            PorcupineWakeWordListener(this, accessKey)
+        } else {
+            Log.i(TAG, "No Picovoice AccessKey configured — wake word disabled, use Test Listen instead")
+            UnimplementedWakeWordListener()
+        }
+        wakeWordListener = listener
+        listener.start { onWakeWordDetected() }
+    }
+
+    private fun onWakeWordDetected() {
+        if (!Settings.isConfigured(this)) {
+            Log.w(TAG, "Wake word heard but no backend URL configured in Settings")
+            return
+        }
+        val client = BackendClient(baseUrl = Settings.getBaseUrl(this), apiKey = Settings.getApiKey(this))
+        val interpreter = CommandInterpreter(this, client, deviceSerial = Settings.getDeviceSerial(this))
+        commandInterpreter = interpreter
+        interpreter.listenForCommand { result ->
+            result.fold(
+                onSuccess = { r -> Log.i(TAG, "Chat command sent: task='${r.task}' app=${r.appName} session=${r.sessionId}") },
+                onFailure = { e -> Log.e(TAG, "Chat command failed: ${e.message}") },
+            )
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -52,6 +88,10 @@ class HeyAgentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        wakeWordListener?.stop()
+        wakeWordListener = null
+        commandInterpreter?.release()
+        commandInterpreter = null
         instance = null
     }
 
@@ -78,15 +118,122 @@ class HeyAgentAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * TODO (not implemented): execute one action against the current screen,
-     * using the SAME action vocabulary the backend already defines —
-     * tap / text / swipe / long_press / key_event (see
-     * backend/demonstrations/player.py's replay() branches for the
-     * reference implementation to mirror). Would use
-     * dispatchGesture() for tap/swipe/long_press and
-     * AccessibilityNodeInfo.performAction(ACTION_SET_TEXT) for text entry.
+     * Execute one action against the current screen. Mirrors the SAME action
+     * vocabulary + timings the backend already uses (see
+     * backend/device/controller.py's tap/text/swipe/long_press — this is a
+     * deliberate 1:1 port so behavior is consistent whether an action came
+     * from the ADB-based backend or ran locally through this service).
+     *
+     * Expected params per actionType (all values are boxed Int/String):
+     *   "tap"         -> {"x": Int, "y": Int}
+     *   "long_press"  -> {"x": Int, "y": Int}
+     *   "swipe"       -> {"direction": String ("up"|"down"|"left"|"right"),
+     *                      "from_x": Int?, "from_y": Int?}
+     *   "text"        -> {"content": String}  — sets text on the currently
+     *                      FOCUSED editable node; caller must tap the target
+     *                      field first (a separate "tap" action) so Android
+     *                      has something focused to write into
+     *   "back"        -> {} (no params)
+     *
+     * "key_event" from the backend's vocabulary is NOT supported here —
+     * AccessibilityService has no equivalent to `adb shell input keyevent
+     * <code>` for arbitrary key codes, only performGlobalAction() constants
+     * (back/home/recents/...). "back" covers the one keyevent this project
+     * actually uses (KEYCODE_BACK); anything else logs a warning and no-ops.
      */
     fun performAction(actionType: String, params: Map<String, Any?>) {
-        Log.w(TAG, "performAction($actionType, $params) — not implemented in this skeleton")
+        when (actionType) {
+            "tap" -> {
+                val x = (params["x"] as? Int) ?: return warnMissingParam("tap", "x")
+                val y = (params["y"] as? Int) ?: return warnMissingParam("tap", "y")
+                dispatchTap(x, y, durationMs = 100L)
+            }
+            "long_press" -> {
+                val x = (params["x"] as? Int) ?: return warnMissingParam("long_press", "x")
+                val y = (params["y"] as? Int) ?: return warnMissingParam("long_press", "y")
+                dispatchTap(x, y, durationMs = 1000L)
+            }
+            "swipe" -> {
+                val direction = (params["direction"] as? String) ?: "up"
+                val fromX = params["from_x"] as? Int
+                val fromY = params["from_y"] as? Int
+                dispatchSwipe(direction, fromX, fromY)
+            }
+            "text" -> {
+                val content = (params["content"] as? String)
+                    ?: return warnMissingParam("text", "content")
+                setTextOnFocusedNode(content)
+            }
+            "back" -> {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            else -> {
+                Log.w(TAG, "performAction: unsupported actionType='$actionType' (params=$params)")
+            }
+        }
+    }
+
+    private fun warnMissingParam(actionType: String, param: String) {
+        Log.w(TAG, "performAction($actionType): missing required param '$param'")
+    }
+
+    // ── Gesture dispatch (tap / long_press / swipe) ──────────────────────────
+
+    private fun dispatchTap(x: Int, y: Int, durationMs: Long) {
+        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+        dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+                .build(),
+            null,
+            null,
+        )
+    }
+
+    private fun dispatchSwipe(direction: String, fromX: Int?, fromY: Int?) {
+        val bounds = rootInActiveWindow?.let { android.graphics.Rect().apply { it.getBoundsInScreen(this) } }
+        val width = bounds?.width()?.takeIf { it > 0 } ?: 1080
+        val height = bounds?.height()?.takeIf { it > 0 } ?: 2400
+
+        // Same deltas as backend/device/controller.py's swipe() — kept in
+        // sync deliberately so a swipe behaves the same whether it ran over
+        // ADB or locally through this service.
+        val (dx, dy) = when (direction) {
+            "up" -> 0 to -500
+            "down" -> 0 to 500
+            "left" -> -400 to 0
+            "right" -> 400 to 0
+            else -> 0 to 0
+        }
+        val x1 = fromX ?: (width / 2)
+        val y1 = fromY ?: (height / 2)
+        val x2 = (x1 + dx).coerceIn(0, width)
+        val y2 = (y1 + dy).coerceIn(0, height)
+
+        val path = Path().apply {
+            moveTo(x1.toFloat(), y1.toFloat())
+            lineTo(x2.toFloat(), y2.toFloat())
+        }
+        dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 300L))
+                .build(),
+            null,
+            null,
+        )
+    }
+
+    // ── Text entry ────────────────────────────────────────────────────────────
+
+    private fun setTextOnFocusedNode(content: String) {
+        val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused == null) {
+            Log.w(TAG, "performAction(text): no focused input field — tap the field first")
+            return
+        }
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, content)
+        }
+        focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 }
