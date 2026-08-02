@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain HTTP (cleartext) app-wide. Android blocks cleartext traffic
+  by default for apps targeting API 28+ (this app targets 36) — without
+  this, BackendClient's http://<laptop-ip>:8000 requests fail with
+  "Cleartext communication not permitted by network security policy".
+
+  Applied via <base-config> rather than scoping to specific IPs: Android's
+  <domain> element matches literal hostnames only (no CIDR/IP-range
+  syntax), and the backend's LAN IP is entered by the user at runtime, not
+  known at build time. Acceptable here since this is a single-user local-
+  dev tool that only ever talks to a backend on the same LAN — see
+  BackendClient.kt's doc comment on that trust model.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
