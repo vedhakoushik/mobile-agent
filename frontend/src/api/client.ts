@@ -238,7 +238,12 @@ export const agentApi = {
     api.post<SessionResponse>('/agent/deploy', opts).then((r) => r.data),
   deployFanout: (opts: FanoutOptions) =>
     api.post<{ results: FanoutResult[] }>('/agent/deploy/fanout', opts).then((r) => r.data),
-  chat: (body: ChatRequest) => api.post<ChatResponse>('/agent/chat', body).then((r) => r.data),
+  // 90s — the backend's LLM retry backoff for 429/5xx can take up to ~50s of
+  // sleeps alone (5+15+30s) plus request time, so the default 10s client
+  // timeout was firing before the backend's own real error (e.g. a 422)
+  // ever came back, masking it behind a generic "timeout" message.
+  chat: (body: ChatRequest) =>
+    api.post<ChatResponse>('/agent/chat', body, { timeout: 90_000 }).then((r) => r.data),
   status: (session_id: string) =>
     api.get<AgentStatus>(`/agent/${session_id}`).then((r) => r.data),
   stop: (session_id: string) =>
