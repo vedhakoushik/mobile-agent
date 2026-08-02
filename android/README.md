@@ -4,18 +4,22 @@ Companion Android app for mobile-agent: a "Hey Google"-style ambient assistant
 that listens for a wake phrase from inside ANY app and executes the resulting
 command through the same automation pipeline the web UI already drives.
 
-**Status: code complete for v1 (laptop-assisted), unbuilt.** Every class is
-now real — wake word (two implementations, see below), speech-to-text,
+**Status: code complete for v1 (laptop-assisted), builds successfully.** Every
+class is real — wake word (two implementations, see below), speech-to-text,
 backend dispatch, on-device gesture execution (the last is a building block
 for a future fully-local v2, not wired into the voice flow yet — see "Known
-architectural gap" below). What's left is entirely on your side: a first
-Android Studio build, and optionally a Picovoice account. Verification note:
-built without a working `java`/`gradle` CLI — a JDK 21 was found bundled
-inside Android Studio and used with its bundled `kotlinc` to syntax/type-check
-every file against the real `android.jar` SDK jar (caught and fixed one real
-bug this way — a variable-shadowing mistake in `MainActivity`). A full
-`./gradlew build` was **never run** — that first real compile happens when
-you open this in Android Studio.
+architectural gap" below).
+
+Verification history: the code was originally written and syntax/type-checked
+file-by-file against the real `android.jar` SDK jar using Android Studio's
+bundled `kotlinc` (no `./gradlew` available at authoring time — caught and
+fixed one real bug this way, a variable-shadowing mistake in `MainActivity`).
+It has since been opened in Android Studio for real and synced —
+**`BUILD SUCCESSFUL in 8m 29s`**, every dependency resolved (androidx,
+Material, OkHttp, Porcupine and its transitive Netty deps), Gradle JDK set to
+the embedded one (`C:\Program Files\Android\Android Studio\jbr`) after the
+first sync attempt flagged an invalid Gradle JDK config. Not yet done: running
+the app on a device, and exercising the actual wake-word/voice flow live.
 
 **Picovoice signup update:** their self-service console now gates signup to
 recognized company/institutional email domains — confirmed live against the
@@ -83,16 +87,14 @@ you want this built out next.
 
 ## Your part — step by step
 
-### 1. Open the project and get it compiling
-- Install Android Studio if you don't have it (you do — it's already at
-  `C:\Program Files\Android\Android Studio`).
-- Open `mobile-agent/android/` as a project. Let it sync — this generates the
-  real `gradle-wrapper.jar` (not committed here, Android Studio creates it)
-  and downloads androidx/Material/OkHttp/Porcupine.
-- Fix whatever the sync/first build surfaces. Most likely spot: `WakeWordListener.kt`
-  if Porcupine's real API differs from what's written (flagged above) — but
-  even if that whole file's Porcupine class is broken, `ContinuousWakeWordListener`
-  in the same file doesn't depend on it and should be unaffected.
+### 1. Open the project and get it compiling — DONE, confirmed working
+Already done once: opened the `mobile-agent` repo in Android Studio, linked
+the `android/settings.gradle.kts` Gradle project (Android Studio detects it
+and offers a "Link Gradle project" banner), fixed one JDK setting (Gradle
+JDK → Embedded JDK, since none was configured yet), and synced —
+`BUILD SUCCESSFUL in 8m 29s`. If you're setting this up fresh on a different
+machine, expect the same two steps (open + link, then possibly the same JDK
+fix) before it syncs cleanly.
 
 ### 2. Wake-word model — OPTIONAL, skip if you don't have a Picovoice AccessKey
 The app works without this (defaults to `ContinuousWakeWordListener`, no
