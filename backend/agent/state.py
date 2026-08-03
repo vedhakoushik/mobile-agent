@@ -47,6 +47,11 @@ class AgentState:
 
     # control flow
     status: Literal["idle", "running", "paused", "done", "error"] = "idle"
+    # Set by DELETE /agent/{id} or a WebSocket "stop" message. Checked by both
+    # agent loops via loop._should_continue(). This is deliberately separate
+    # from `status`: the loops themselves set status="done" when they finish
+    # normally, so overloading it as the stop signal would be ambiguous.
+    stop_requested: bool = False
     task_complete: bool = False
     failure_reason: Optional[str] = None
     errors: list[str] = field(default_factory=list)

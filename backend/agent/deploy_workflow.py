@@ -297,7 +297,7 @@ class DeployWorkflow(Workflow):
 
         try:
             await execute_action(
-                state.device, ev.decision, ev.elements, state.credentials
+                state.device, ev.decision, ev.elements, state.credentials, state=state
             )
             await state.device.wait_idle()
 

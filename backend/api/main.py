@@ -103,6 +103,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             state = _sessions.get(session_id)
             if state:
                 if msg_type == "stop":
+                    # stop_requested is the flag the agent loops actually
+                    # check; setting status alone left the agent running.
+                    state.stop_requested = True
                     state.status = "done"
                 elif msg_type == "pause":
                     state.status = "paused"

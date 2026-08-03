@@ -3,6 +3,7 @@ from ..perception.grid import overlay_grid
 from ..llm import call_vision_llm
 from ..llm.prompts import build_grid_prompt
 from ..security.credentials import CredentialNotFoundError
+from .usage import record_usage
 
 
 async def execute_action(
@@ -10,11 +11,15 @@ async def execute_action(
     action: dict,
     elements: list[dict],
     credentials=None,
+    state=None,
 ) -> None:
     """
     Execute the LLM-decided action on the Android device.
     action: parsed action dict with keys: action, element_id, text_input, direction, grid_cell, secret_id
     credentials: security.CredentialManager, or None if no secrets.yaml is configured
+    state: AgentState, or None. Only needed so grid mode's extra vision call
+        can be billed to the session — without it that call burns tokens the
+        usage limiter never sees.
     """
     action_type = action.get("action", "").lower()
     elem_id = action.get("element_id")
@@ -86,6 +91,8 @@ async def execute_action(
             grid_resp = await call_vision_llm(
                 action.get("_provider", "gemini"), grid_b64, prompt
             )
+            if state is not None:
+                record_usage(state, grid_resp)
             grid_cell = grid_resp.get("grid_cell", "E5")
 
         coord = coords.get(grid_cell.upper())

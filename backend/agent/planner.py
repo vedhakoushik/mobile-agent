@@ -1,6 +1,7 @@
 from ..llm import call_text_llm
 from ..llm.prompts import build_planner_prompt
 from .state import AgentState
+from .usage import record_usage
 
 
 async def run_planner(state: AgentState) -> list[str]:
@@ -11,6 +12,7 @@ async def run_planner(state: AgentState) -> list[str]:
     try:
         prompt = build_planner_prompt(state.task, state.app_name)
         result = await call_text_llm(state.provider, prompt)
+        record_usage(state, result)
         steps = result.get("steps", [])
         if steps and isinstance(steps, list):
             return [str(s) for s in steps]

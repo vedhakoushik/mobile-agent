@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from typing import Optional
 
@@ -20,6 +21,8 @@ from ...app_cards.loader import AppCardProvider
 from ...security.credentials import CredentialManager
 from ...graph.neo4j_client import NavigationGraph
 from ...persistence import get_session, get_session_events, list_sessions
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -42,11 +45,52 @@ _app_cards = AppCardProvider()
 _nav_graph = NavigationGraph()
 
 
-async def _run_and_release(coro, registry, serial):
+async def _run_and_release(coro, registry, serial, session_id=None):
+    """Run an agent coroutine, then always give the device back and drop the
+    in-memory session.
+
+    Both cleanups have to happen on the failure path too. Without the
+    release, one crashed run permanently burns a device slot; without the
+    _sessions.pop, every run leaks an AgentState (which holds a full
+    screenshot) for the lifetime of the process. Dropping the session here is
+    safe because get_status() falls back to the persisted row in SQLite,
+    which the loops write before returning.
+    """
     try:
         await coro
+    except Exception as e:
+        logger.warning("agent run for session %s failed: %s", session_id, e)
     finally:
         registry.release(serial)
+        if session_id is not None:
+            _sessions.pop(session_id, None)
+
+
+def _build_deploy_coro(state: AgentState, engine: str):
+    """Pick the deploy implementation. The DeployWorkflow import is kept lazy
+    so the optional llama-index-workflows dependency is only required when
+    the workflow engine is actually selected."""
+    if engine == "workflow":
+        from ...agent.deploy_workflow import DeployWorkflow
+        return DeployWorkflow(timeout=300).run(state=state)
+    return run_deploy(state)
+
+
+def _start_agent_task(coro_factory, registry, serial, session_id, name):
+    """Build the agent coroutine and schedule it, releasing the device if
+    construction itself fails.
+
+    The device is already acquired by the time we get here, so anything that
+    raises while building the coroutine (e.g. the optional DeployWorkflow
+    import) would otherwise leave that device marked busy forever.
+    """
+    try:
+        coro = coro_factory()
+    except Exception:
+        registry.release(serial)
+        _sessions.pop(session_id, None)
+        raise
+    asyncio.create_task(_run_and_release(coro, registry, serial, session_id), name=name)
 
 
 def _make_state(
@@ -95,8 +139,11 @@ async def start_explore(body: ExploreRequest, request: Request):
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(
-        _run_and_release(run_explore(state), request.app.state.devices, state.device.serial),
+    _start_agent_task(
+        lambda: run_explore(state),
+        request.app.state.devices,
+        state.device.serial,
+        session_id,
         name=f"explore-{session_id}",
     )
     return SessionResponse(session_id=session_id, message="Exploration started")
@@ -118,13 +165,11 @@ async def start_deploy(body: DeployRequest, request: Request):
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    if body.engine == "workflow":
-        from ...agent.deploy_workflow import DeployWorkflow
-        coro = DeployWorkflow(timeout=300).run(state=state)
-    else:
-        coro = run_deploy(state)
-    asyncio.create_task(
-        _run_and_release(coro, request.app.state.devices, state.device.serial),
+    _start_agent_task(
+        lambda: _build_deploy_coro(state, body.engine),
+        request.app.state.devices,
+        state.device.serial,
+        session_id,
         name=f"deploy-{session_id}",
     )
     return SessionResponse(session_id=session_id, message="Deployment started")
@@ -155,8 +200,11 @@ async def start_chat(body: ChatRequest, request: Request):
     )
     state = _make_state(session_id, config, request, body.device_serial)
     _sessions[session_id] = state
-    asyncio.create_task(
-        _run_and_release(run_deploy(state), request.app.state.devices, state.device.serial),
+    _start_agent_task(
+        lambda: run_deploy(state),
+        request.app.state.devices,
+        state.device.serial,
+        session_id,
         name=f"deploy-{session_id}",
     )
     return ChatResponse(
@@ -209,15 +257,25 @@ async def start_deploy_fanout(body: FanoutDeployRequest, request: Request):
             ws_broadcast=ws_manager.broadcast,
         )
         _sessions[session_id] = state
-        if body.engine == "workflow":
-            from ...agent.deploy_workflow import DeployWorkflow
-            coro = DeployWorkflow(timeout=300).run(state=state)
-        else:
-            coro = run_deploy(state)
-        asyncio.create_task(
-            _run_and_release(coro, registry, acquired_serial),
-            name=f"deploy-fanout-{session_id}",
-        )
+        try:
+            _start_agent_task(
+                lambda s=state: _build_deploy_coro(s, body.engine),
+                registry,
+                acquired_serial,
+                session_id,
+                name=f"deploy-fanout-{session_id}",
+            )
+        except Exception as e:
+            # One device failing to start must not abort the whole fan-out —
+            # _start_agent_task has already released this device.
+            logger.warning("fanout start failed for %s: %s", serial, e)
+            results.append(FanoutSessionResult(
+                device_serial=serial,
+                session_id=None,
+                started=False,
+                detail=f"failed to start: {e}",
+            ))
+            continue
         results.append(FanoutSessionResult(
             device_serial=serial,
             session_id=session_id,
@@ -284,6 +342,9 @@ async def stop_agent(session_id: str):
     state = _sessions.get(session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    # stop_requested is what actually breaks the agent loop; status is set too
+    # so a status poll between now and the loop noticing reads as stopped.
+    state.stop_requested = True
     state.status = "done"
     state.task_complete = False
     return AgentStatusResponse(
@@ -291,4 +352,12 @@ async def stop_agent(session_id: str):
         status="done",
         round_num=state.round_num,
         task_complete=False,
+        # Report real usage — these previously defaulted to 0, so stopping a
+        # session that had spent thousands of tokens reported it as free.
+        failure_reason=state.failure_reason,
+        errors=state.errors[-5:],
+        tokens_used=state.tokens_used,
+        estimated_cost_usd=state.estimated_cost_usd,
+        llm_call_count=state.llm_call_count,
+        escalation_count=state.escalation_count,
     )

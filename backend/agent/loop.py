@@ -17,6 +17,22 @@ from ..persistence import create_session, update_session, append_event
 logger = logging.getLogger(__name__)
 
 
+def _should_continue(state: AgentState) -> bool:
+    """Loop-continuation predicate shared by run_explore and run_deploy.
+
+    Extracted into a named helper so the stop path is directly testable.
+    The stop_requested check is the important one: previously both loops
+    only inspected `status` for "paused", so DELETE /agent/{id} and the
+    WebSocket "stop" message set status="done" and nothing happened — the
+    agent kept driving the device while the API reported it as stopped.
+    """
+    return (
+        state.round_num < state.max_rounds
+        and not state.task_complete
+        and not state.stop_requested
+    )
+
+
 async def _launch_target_app(state: AgentState) -> None:
     """Bring the target app to the foreground before the round loop starts.
 
@@ -57,7 +73,7 @@ async def run_explore(state: AgentState) -> None:
     await _launch_target_app(state)
 
     try:
-        while state.round_num < state.max_rounds and not state.task_complete:
+        while _should_continue(state):
             if state.status == "paused":
                 await asyncio.sleep(0.5)
                 continue
@@ -145,7 +161,7 @@ async def run_explore(state: AgentState) -> None:
                 break
 
             # ── 9. Execute action ─────────────────────────────────────────────
-            await execute_action(state.device, decision, state.elements, state.credentials)
+            await execute_action(state.device, decision, state.elements, state.credentials, state=state)
 
             # ── 10. Wait for UI to settle ─────────────────────────────────────
             await state.device.wait_idle()
@@ -236,7 +252,7 @@ async def run_deploy(state: AgentState) -> None:
     await state.broadcast({"type": "plan_ready", "steps": state.sub_steps})
 
     try:
-        while state.round_num < state.max_rounds and not state.task_complete:
+        while _should_continue(state):
             if state.status == "paused":
                 await asyncio.sleep(0.5)
                 continue
@@ -333,7 +349,7 @@ async def run_deploy(state: AgentState) -> None:
                 state.failure_reason = decision.get("thought", "Task marked impossible by agent")
 
             # ── 6–7: Execute + wait ───────────────────────────────────────────
-            await execute_action(state.device, decision, state.elements, state.credentials)
+            await execute_action(state.device, decision, state.elements, state.credentials, state=state)
             await state.device.wait_idle()
 
             # ── 8. Advance sub-step index if current step likely complete ─────
