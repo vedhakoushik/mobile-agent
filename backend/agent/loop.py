@@ -79,8 +79,11 @@ async def run_explore(state: AgentState) -> None:
                 continue
 
             # ── 1. Capture ────────────────────────────────────────────────────
-            raw_png = await state.device.screenshot()
-            raw_xml = await state.device.pull_xml()
+            # Two independent ADB round-trips — run them concurrently rather
+            # than back-to-back, which halves the capture latency every round.
+            raw_png, raw_xml = await asyncio.gather(
+                state.device.screenshot(), state.device.pull_xml()
+            )
 
             # ── 2. Parse elements ─────────────────────────────────────────────
             elements = parse_interactive_elements(raw_xml)
@@ -95,7 +98,8 @@ async def run_explore(state: AgentState) -> None:
             current_screen_sig = screen_signature(state.elements)
             if state.nav_graph is not None and state.last_screen_sig is not None:
                 try:
-                    state.nav_graph.record_transition(
+                    await asyncio.to_thread(
+                        state.nav_graph.record_transition,
                         app_name=state.app_name,
                         from_screen_sig=state.last_screen_sig,
                         element_sig=state.last_elem_sig or "unknown",
@@ -106,7 +110,7 @@ async def run_explore(state: AgentState) -> None:
                     pass  # never let graph recording break the explore run
 
             # ── 3. Annotate screenshot ────────────────────────────────────────
-            annotated_b64 = annotate_screenshot(raw_png, elements)
+            annotated_b64 = await asyncio.to_thread(annotate_screenshot, raw_png, elements)
             state.screenshot_b64 = annotated_b64
             state.raw_screenshot = raw_png
 
@@ -258,8 +262,10 @@ async def run_deploy(state: AgentState) -> None:
                 continue
 
             # ── 1–3: Same as explore ──────────────────────────────────────────
-            raw_png = await state.device.screenshot()
-            raw_xml = await state.device.pull_xml()
+            # Concurrent capture — see the matching comment in run_explore.
+            raw_png, raw_xml = await asyncio.gather(
+                state.device.screenshot(), state.device.pull_xml()
+            )
             elements = parse_interactive_elements(raw_xml)
             state.elements = [e.to_dict() for e in elements]
 
@@ -272,7 +278,8 @@ async def run_deploy(state: AgentState) -> None:
             current_screen_sig = screen_signature(state.elements)
             if state.nav_graph is not None and state.last_screen_sig is not None:
                 try:
-                    state.nav_graph.record_transition(
+                    await asyncio.to_thread(
+                        state.nav_graph.record_transition,
                         app_name=state.app_name,
                         from_screen_sig=state.last_screen_sig,
                         element_sig=state.last_elem_sig or "unknown",
@@ -285,11 +292,13 @@ async def run_deploy(state: AgentState) -> None:
             known_transitions = []
             if state.nav_graph is not None:
                 try:
-                    known_transitions = state.nav_graph.get_outgoing_transitions(state.app_name, current_screen_sig)
+                    known_transitions = await asyncio.to_thread(
+                        state.nav_graph.get_outgoing_transitions, state.app_name, current_screen_sig
+                    )
                 except Exception:
                     pass
 
-            annotated_b64 = annotate_screenshot(raw_png, elements)
+            annotated_b64 = await asyncio.to_thread(annotate_screenshot, raw_png, elements)
             state.screenshot_b64 = annotated_b64
 
             await state.broadcast({
