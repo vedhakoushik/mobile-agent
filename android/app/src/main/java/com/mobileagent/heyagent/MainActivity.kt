@@ -142,26 +142,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTestListen() {
-        resultText.text = "Listening…"
-        val client = BackendClient(
-            baseUrl = Settings.getBaseUrl(this),
-            apiKey = Settings.getApiKey(this),
-        )
-        val interpreter = CommandInterpreter(this, client, deviceSerial = Settings.getDeviceSerial(this))
-        commandInterpreter = interpreter
-        interpreter.listenForCommand { result ->
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { r ->
-                        resultText.text =
-                            "Sent: \"${r.task}\" on ${r.appName}\nsession_id=${r.sessionId}"
-                    },
-                    onFailure = { e ->
-                        resultText.text = "Failed: ${e.message}"
-                    },
-                )
-            }
+        val service = HeyAgentAccessibilityService.instance
+        if (service == null) {
+            resultText.text =
+                "Enable the accessibility service first — the agent runs the " +
+                "task on this device, so it needs that permission to tap and type."
+            return
         }
+        resultText.text = "Listening…"
+        val interpreter = CommandInterpreter(this) { spoken ->
+            runOnUiThread { resultText.text = "Heard: \"$spoken\"\nWorking…" }
+            // Same path the wake word takes, so Test Listen exercises the
+            // real pipeline rather than a parallel one that could drift.
+            service.runCommand(spoken)
+        }
+        commandInterpreter = interpreter
+        interpreter.listenForCommand()
     }
 
     override fun onDestroy() {

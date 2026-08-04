@@ -110,6 +110,16 @@ class ChatResponse(BaseModel):
 # AccessibilityService), asks the backend what to do next, and executes the
 # action itself. The backend stays stateless — no device, no session, no ADB.
 
+class InterpretRequest(BaseModel):
+    message: str
+    provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
+
+
+class InterpretResponse(BaseModel):
+    app_name: str
+    task: str
+
+
 class DecideElement(BaseModel):
     """One interactive element, mirroring perception/xml_parser.py's shape so
     the existing prompt builders consume it unchanged."""

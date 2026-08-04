@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import (
     ExploreRequest, DeployRequest, ChatRequest, ChatResponse,
-    DecideRequest, DecideResponse,
+    DecideRequest, DecideResponse, InterpretRequest, InterpretResponse,
     FanoutDeployRequest, FanoutDeployResponse, FanoutSessionResult,
     SessionResponse, AgentStatusResponse, SessionHistoryEvent,
 )
@@ -215,6 +215,34 @@ async def start_chat(body: ChatRequest, request: Request):
         task=task.strip(),
         message="Deployment started",
     )
+
+
+@router.post("/interpret", response_model=InterpretResponse)
+async def interpret_message(body: InterpretRequest):
+    """Turn free text into {app_name, task} without starting anything.
+
+    /agent/chat does the same inference but then acquires a device and kicks
+    off an ADB Deploy run, so it 503s on a cloud backend that has no phone
+    attached. Callers that drive themselves (the Android app, via
+    OnDeviceAgentLoop) need the inference alone.
+
+    Must stay registered above /{session_id}.
+    """
+    try:
+        result = await call_text_llm(body.provider, build_chat_intent_prompt(body.message))
+    except Exception as e:
+        logger.warning("interpret: LLM call failed: %s", e)
+        raise HTTPException(status_code=502, detail="LLM call failed")
+
+    app_name = result.get("app_name")
+    task = result.get("task")
+    if (
+        not isinstance(app_name, str) or not app_name.strip()
+        or not isinstance(task, str) or not task.strip()
+    ):
+        raise HTTPException(status_code=422, detail=_INTENT_FAIL_DETAIL)
+
+    return InterpretResponse(app_name=app_name.strip(), task=task.strip())
 
 
 @router.post("/decide", response_model=DecideResponse)

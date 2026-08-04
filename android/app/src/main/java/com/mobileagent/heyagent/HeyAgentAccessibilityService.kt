@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlin.concurrent.thread
 
 /**
  * Cross-app control surface — the same capability screen readers and "Hey
@@ -36,6 +37,7 @@ class HeyAgentAccessibilityService : AccessibilityService() {
 
     private var wakeWordListener: WakeWordListener? = null
     private var commandInterpreter: CommandInterpreter? = null
+    private var agentLoop: OnDeviceAgentLoop? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -61,27 +63,53 @@ class HeyAgentAccessibilityService : AccessibilityService() {
             Log.w(TAG, "Wake word heard but no backend URL configured in Settings")
             return
         }
-        val client = BackendClient(baseUrl = Settings.getBaseUrl(this), apiKey = Settings.getApiKey(this))
-        val deviceSerial = Settings.getDeviceSerial(this)
 
         if (!remainderText.isNullOrBlank()) {
             Log.i(TAG, "Wake word + command in one breath: \"$remainderText\"")
-            client.sendChatCommand(remainderText, deviceSerial = deviceSerial) { result ->
-                logChatResult(result)
-            }
+            runCommand(remainderText)
             return
         }
 
-        val interpreter = CommandInterpreter(this, client, deviceSerial = deviceSerial)
+        // Wake phrase alone — listen for the command as a second utterance.
+        val client = BackendClient(
+            baseUrl = Settings.getBaseUrl(this), apiKey = Settings.getApiKey(this)
+        )
+        val interpreter = CommandInterpreter(this, client, onTranscript = { spoken ->
+            runCommand(spoken)
+        })
         commandInterpreter = interpreter
-        interpreter.listenForCommand { result -> logChatResult(result) }
+        interpreter.listenForCommand()
     }
 
-    private fun logChatResult(result: Result<ChatResult>) {
-        result.fold(
-            onSuccess = { r -> Log.i(TAG, "Chat command sent: task='${r.task}' app=${r.appName} session=${r.sessionId}") },
-            onFailure = { e -> Log.e(TAG, "Chat command failed: ${e.message}") },
+    /**
+     * Run a spoken command end to end on this device.
+     *
+     * The backend only interprets and decides; every tap/swipe/keystroke
+     * happens here via performAction(). That's what lets the backend live in
+     * the cloud, where it has no ADB path to this phone.
+     */
+    fun runCommand(spoken: String) {
+        val client = BackendClient(
+            baseUrl = Settings.getBaseUrl(this), apiKey = Settings.getApiKey(this)
         )
+        val loop = OnDeviceAgentLoop(this, client)
+        agentLoop = loop
+
+        // interpretSync blocks on the network, so keep it off the main thread.
+        thread(name = "HeyAgentInterpret") {
+            val (appName, task) = try {
+                client.interpretSync(spoken)
+            } catch (e: Exception) {
+                Log.e(TAG, "interpret failed: ${e.message}")
+                return@thread
+            }
+            Log.i(TAG, "Understood: task='$task' app='$appName'")
+            loop.start(task, appName) { event -> Log.i(TAG, event) }
+        }
+    }
+
+    fun stopAgentLoop() {
+        agentLoop?.stop()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

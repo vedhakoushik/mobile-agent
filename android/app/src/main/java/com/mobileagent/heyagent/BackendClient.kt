@@ -7,8 +7,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Talks to the mobile-agent FastAPI backend's conversational endpoint
@@ -85,6 +87,112 @@ class BackendClient(
             }
         })
     }
+
+    /**
+     * Turn free speech into {app_name, task} without starting anything.
+     *
+     * Synchronous, same reasoning as decideSync — call off the main thread.
+     * Uses /agent/interpret rather than /agent/chat because chat also spins
+     * up an ADB Deploy run, which a cloud backend with no phone attached
+     * cannot do.
+     */
+    fun interpretSync(message: String): Pair<String, String> {
+        val body = JSONObject().apply { put("message", message) }
+        val requestBuilder = Request.Builder()
+            .url("$baseUrl/api/v1/agent/interpret")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+        if (apiKey != null) requestBuilder.addHeader("X-API-Key", apiKey)
+
+        decideClient.newCall(requestBuilder.build()).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code}: $text")
+            val json = JSONObject(text)
+            return json.getString("app_name") to json.getString("task")
+        }
+    }
+
+    /**
+     * Ask the backend for the next action, given the current screen.
+     *
+     * Synchronous on purpose: OnDeviceAgentLoop already runs on its own
+     * background thread, and a read -> decide -> act -> repeat loop written
+     * with chained async callbacks would be far harder to follow and to stop
+     * cleanly. Never call this from the main thread.
+     */
+    fun decideSync(
+        task: String,
+        appName: String,
+        elements: List<ScreenElement>,
+        roundNum: Int,
+        maxRounds: Int,
+        history: List<RoundRecord>,
+    ): AgentDecision {
+        val body = JSONObject().apply {
+            put("task", task)
+            put("app_name", appName)
+            put("elements", ScreenElement.toJsonArray(elements))
+            put("round_num", roundNum)
+            put("max_rounds", maxRounds)
+            put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
+        }
+
+        val requestBuilder = Request.Builder()
+            .url("$baseUrl/api/v1/agent/decide")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+        if (apiKey != null) requestBuilder.addHeader("X-API-Key", apiKey)
+
+        decideClient.newCall(requestBuilder.build()).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code}: $text")
+            }
+            val json = JSONObject(text)
+            return AgentDecision(
+                action = json.optString("action"),
+                elementId = if (json.isNull("element_id")) null else json.optInt("element_id"),
+                textInput = if (json.isNull("text_input")) null else json.optString("text_input"),
+                direction = if (json.isNull("direction")) null else json.optString("direction"),
+                thought = json.optString("thought"),
+                tokensUsed = json.optInt("tokens_used", 0),
+                estimatedCostUsd = json.optDouble("estimated_cost_usd", 0.0),
+            )
+        }
+    }
+
+    /**
+     * Separate client for /decide: an LLM round trip can take far longer than
+     * OkHttp's 10s default read timeout, and the backend additionally retries
+     * 429/5xx internally with backoff.
+     */
+    private val decideClient = OkHttpClient.Builder()
+        .callTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .build()
 }
 
 data class ChatResult(val sessionId: String, val appName: String, val task: String)
+
+data class AgentDecision(
+    val action: String,
+    val elementId: Int?,
+    val textInput: String?,
+    val direction: String?,
+    val thought: String,
+    val tokensUsed: Int,
+    val estimatedCostUsd: Double,
+)
+
+/** One completed round, sent back so the model can see what it already did. */
+data class RoundRecord(val round: Int, val action: String, val elementId: Int?, val thought: String) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("round", round)
+        put(
+            "action",
+            JSONObject().apply {
+                put("action", action)
+                if (elementId != null) put("element_id", elementId)
+                put("thought", thought)
+            },
+        )
+    }
+}
