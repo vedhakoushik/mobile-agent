@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import (
     ExploreRequest, DeployRequest, ChatRequest, ChatResponse,
+    DecideRequest, DecideResponse,
     FanoutDeployRequest, FanoutDeployResponse, FanoutSessionResult,
     SessionResponse, AgentStatusResponse, SessionHistoryEvent,
 )
@@ -15,7 +16,8 @@ from ..ws.manager import ws_manager
 from ...agent.loop import run_explore, run_deploy
 from ...agent.state import AgentState, RunConfig
 from ...llm import call_text_llm
-from ...llm.prompts import build_chat_intent_prompt
+from ...llm.pricing import estimate_cost_usd
+from ...llm.prompts import build_chat_intent_prompt, build_deploy_prompt
 from ...knowledge_base.store import KnowledgeBase
 from ...app_cards.loader import AppCardProvider
 from ...security.credentials import CredentialManager
@@ -212,6 +214,72 @@ async def start_chat(body: ChatRequest, request: Request):
         app_name=app_name.strip(),
         task=task.strip(),
         message="Deployment started",
+    )
+
+
+@router.post("/decide", response_model=DecideResponse)
+async def decide_next_action(body: DecideRequest):
+    """Return the next action for a caller that drives the device itself.
+
+    Stateless by design: no device is acquired, no session is stored, nothing
+    is broadcast. The ADB pipeline (run_explore/run_deploy) requires the
+    backend to reach the phone directly, which is impossible once the backend
+    lives in the cloud — so here the phone owns the loop (read screen ->
+    ask -> act -> repeat) and the backend only does the reasoning.
+
+    Deliberately reuses build_deploy_prompt and call_text_llm unchanged, so
+    on-device decisions come from the same prompt and the same provider
+    layer as ADB-driven ones and the two paths can't quietly diverge.
+
+    Must stay registered above /{session_id} or that wildcard swallows it.
+    """
+    # A device- and KB-less state is enough: build_deploy_prompt only reads
+    # task/app_name/round_num/max_rounds/sub_steps/current_step_idx/
+    # action_history/app_card/credentials.
+    config = RunConfig(
+        app_name=body.app_name,
+        task=body.task,
+        mode="deploy",
+        provider=body.provider,
+        reasoning_mode="fast",
+        max_rounds=body.max_rounds,
+    )
+    state = AgentState(
+        session_id="on-device", config=config, app_card=_app_cards.get(body.app_name)
+    )
+    state.round_num = body.round_num
+    state.action_history = [{"round": h.round, "action": h.action} for h in body.history]
+
+    elements = [e.model_dump() for e in body.elements]
+    # docs_context is empty: the KB is populated by Explore runs, which need
+    # ADB and so don't exist on this path yet. The prompt already handles an
+    # empty KB ("reason from screenshot directly").
+    prompt = build_deploy_prompt(state, elements, docs_context="")
+
+    try:
+        decision = await call_text_llm(body.provider, prompt)
+    except Exception as e:
+        logger.warning("decide: LLM call failed: %s", e)
+        raise HTTPException(status_code=502, detail="LLM call failed")
+
+    action = decision.get("action")
+    if not isinstance(action, str) or not action.strip():
+        raise HTTPException(status_code=502, detail="LLM returned no action")
+
+    usage = decision.get("_usage", {}) or {}
+    return DecideResponse(
+        action=action.strip(),
+        element_id=decision.get("element_id"),
+        text_input=decision.get("text_input"),
+        direction=decision.get("direction"),
+        thought=decision.get("thought", "") or "",
+        observation=decision.get("observation", "") or "",
+        tokens_used=usage.get("total_tokens", 0),
+        estimated_cost_usd=estimate_cost_usd(
+            body.provider,
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        ),
     )
 
 

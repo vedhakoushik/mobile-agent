@@ -102,6 +102,52 @@ class ChatResponse(BaseModel):
     message: str
 
 
+# ── On-device agent loop (mobile app drives itself; backend only reasons) ──────
+#
+# The ADB-based Explore/Deploy pipeline needs the backend to physically reach
+# the phone, which a cloud deployment cannot do. These schemas back
+# POST /agent/decide, where the phone reads its own screen (Android
+# AccessibilityService), asks the backend what to do next, and executes the
+# action itself. The backend stays stateless — no device, no session, no ADB.
+
+class DecideElement(BaseModel):
+    """One interactive element, mirroring perception/xml_parser.py's shape so
+    the existing prompt builders consume it unchanged."""
+    id: int
+    class_name: str = ""
+    text: str = ""
+    content_desc: str = ""
+    resource_id: str = ""
+
+
+class DecideHistoryEntry(BaseModel):
+    round: int
+    action: dict
+
+
+class DecideRequest(BaseModel):
+    task: str
+    app_name: str
+    elements: list[DecideElement] = []
+    round_num: int = 0
+    max_rounds: int = 20
+    history: list[DecideHistoryEntry] = []
+    provider: Literal["gemini", "openai", "anthropic", "ollama", "cerebras", "glm"] = "gemini"
+
+
+class DecideResponse(BaseModel):
+    action: str
+    element_id: Optional[int] = None
+    text_input: Optional[str] = None
+    direction: Optional[str] = None
+    thought: str = ""
+    observation: str = ""
+    # Returned so the caller can enforce its own budget — the phone owns the
+    # loop here, so it also owns the stopping decision.
+    tokens_used: int = 0
+    estimated_cost_usd: float = 0.0
+
+
 class SessionResponse(BaseModel):
     session_id: str
     message: str = ""
