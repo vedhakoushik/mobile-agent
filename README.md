@@ -28,7 +28,8 @@ API.
 
 Inspired by AppAgent, DroidRun, and MobileAgent. See
 [docs/COMPARISON.md](docs/COMPARISON.md) for an honest look at how this stacks up against those —
-including where it's weaker.
+including where it's weaker. See **[Known Issues and Limitations](#known-issues-and-limitations)** for
+current constraints and unverified areas.
 
 ## How it works, in one picture
 
@@ -82,6 +83,23 @@ Explore has already documented.
 
 Full setup instructions (emulator bootstrap, Docker Compose, environment variables) are in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Known Issues and Limitations
+The project is functional, but several parts are still experimental or have environment-specific limitations.
+
+- **Gemini free-tier quota:** The Gemini free tier allows 20 requests per day per Google Cloud project. Each agent round consumes one request, so multi-round tasks can exhaust the quota quickly. Creating another API key in the same project does not increase the quota. A `429 RESOURCE_EXHAUSTED` response indicates quota exhaustion, not an agent failure. Use a different provider or a local Ollama model when the quota is exhausted.
+
+- **Android build requires Android Studio:** The `android/` module does not currently include a Gradle wrapper. To build the Android app, open `android/` as its own Android Studio project and use Android Studio's bundled Gradle/JDK setup.
+
+- **End-to-end mobile/cloud path is not verified:** The phone → Tailscale → EC2 → phone path has not been verified end to end. `OnDeviceAgentLoop` has also not been verified completing a real multi-round task on physical hardware. The ADB-based laptop path is the verified execution path.
+
+- **Navigation graph benefit is unmeasured:** Neo4j is optional and fail-soft, but the project has not yet measured whether feeding known navigation transitions into the agent actually reduces the number of rounds required. See [Issue #7](https://github.com/vedhakoushik/mobile-agent/issues/7).
+
+- **Device actions include fixed settling delays:** The device layer currently uses fixed sleeps after actions, including about 0.8 seconds after each tap. These delays are intended to allow the UI to settle but can add significant latency. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) and [Issue #3](https://github.com/vedhakoushik/mobile-agent/issues/3).
+
+- **Backend authentication fails open without `API_KEY`:** If `API_KEY` is unset, authentication is currently disabled. This is convenient for local development but unsafe for an exposed backend. Do not expose the backend without configuring `API_KEY`. See [Issue #1](https://github.com/vedhakoushik/mobile-agent/issues/1).
+
+- **Phone-to-laptop networking can be fragile:** Shared Wi-Fi networks with client isolation or CGNAT `100.x` addresses may prevent a phone from reaching the laptop. A mobile hotspot can work around this. On Windows, the firewall may also block inbound connections when the network profile is set to Public.
 
 ## Project layout
 
