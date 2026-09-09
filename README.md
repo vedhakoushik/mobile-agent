@@ -28,7 +28,7 @@ API.
 
 Inspired by AppAgent, DroidRun, and MobileAgent. See
 [docs/COMPARISON.md](docs/COMPARISON.md) for an honest look at how this stacks up against those —
-including where it's weaker. See **[Known Issues and Limitations](#known-issues-and-limitations)** for
+including where it's weaker. See **[Known issues and limitations](#known-issues-and-limitations)** for
 current constraints and unverified areas.
 
 ## How it works, in one picture
@@ -84,7 +84,8 @@ Explore has already documented.
 Full setup instructions (emulator bootstrap, Docker Compose, environment variables) are in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-## Known Issues and Limitations
+## Known issues and limitations
+
 The project is functional, but several parts are still experimental or have environment-specific limitations.
 
 - **Gemini free-tier quota:** The Gemini free tier allows 20 requests per day per Google Cloud project. Each agent round consumes one request, so multi-round tasks can exhaust the quota quickly. Creating another API key in the same project does not increase the quota. A `429 RESOURCE_EXHAUSTED` response indicates quota exhaustion, not an agent failure. Use a different provider or a local Ollama model when the quota is exhausted.
